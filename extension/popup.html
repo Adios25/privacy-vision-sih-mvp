@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privvy</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="lens-mark" aria-hidden="true"><i></i></span>
+    <div><strong>Privvy</strong><small>Local privacy lens</small></div>
+    <span id="engine-badge" class="engine-badge">Ready</span>
+  </header>
+
+  <main>
+    <section id="boundary" class="boundary" data-tone="idle" aria-live="polite">
+      <span class="boundary-dot" aria-hidden="true"></span>
+      <div><strong id="boundary-title">Nothing inspected</strong><p id="boundary-copy">Open a website, then choose when this extension may inspect the active tab.</p></div>
+    </section>
+
+    <section class="control-section">
+      <label for="task">Assistance task</label>
+      <textarea id="task" class="resize-none" rows="2">Fill supported empty fields, preserve existing values, and prepare the form for submission.</textarea>
+      <div class="action-row">
+        <button id="scan" class="primary" type="button" disabled>1. Scan current page</button>
+        <button id="clear" class="ghost" type="button" disabled>Clear</button>
+      </div>
+    </section>
+
+    <section id="scan-results" class="hidden">
+      <div class="section-heading"><div><small>Local processing</small><h2>Redaction ledger</h2></div><strong id="detection-total" class="metric-number">0</strong></div>
+      <div id="category-list" class="category-list"></div>
+      <div class="proof-row"><span>Known-value leak check</span><strong id="leak-status">Pending</strong></div>
+      <canvas id="preview" aria-label="Locally redacted screenshot preview"></canvas>
+      <div class="metric-grid">
+        <span><small>DOM scan</small><strong id="scan-ms">—</strong></span>
+        <span><small>Vision</small><strong id="vision-ms">—</strong></span>
+        <span><small>Payload</small><strong id="payload-size">—</strong></span>
+        <span><small>Memory</small><strong id="memory">—</strong></span>
+      </div>
+      <details>
+        <summary>Inspect exact sanitized payload</summary>
+        <pre id="payload-json"></pre>
+      </details>
+      <button id="plan" class="ghost wide-button" type="button" disabled>Optional: ask server-side VLM</button>
+    </section>
+
+    <section id="plan-results" class="hidden">
+      <div class="section-heading"><div><small>Sanitized graph only</small><h2>Validated action plan</h2></div><span id="provider" class="engine-badge"></span></div>
+      <p id="planner-message" class="section-copy"></p>
+      <div id="action-list" class="action-list"></div>
+      <div class="metric-grid three">
+        <span><small>Server</small><strong id="server-ms">—</strong></span>
+        <span><small>Model</small><strong id="model-ms">—</strong></span>
+        <span><small>End to end</small><strong id="e2e-ms">—</strong></span>
+      </div>
+      <button id="execute" class="primary wide-button" type="button" disabled>2. Execute safe actions</button>
+    </section>
+
+    <section id="execution-results" class="hidden">
+      <div class="section-heading"><div><small>Local validation</small><h2>Execution receipt</h2></div></div>
+      <div id="receipt-list" class="action-list"></div>
+    </section>
+
+    <section id="confirmation" class="confirmation hidden" role="region" aria-labelledby="confirmation-title">
+      <strong id="confirmation-title">Submission needs your approval</strong>
+      <p>Privvy found the local synthetic form’s completion control. It will activate it only after this approval.</p>
+      <button id="confirm" class="confirm-button" type="button" disabled>3. Confirm synthetic submission</button>
+    </section>
+
+    <details class="settings">
+      <summary>Local profile and server settings</summary>
+      <form id="settings-form" novalidate>
+        <label>Planner server<input name="serverUrl" type="url" value="http://127.0.0.1:8787"></label>
+        <label>Full name<input name="name" autocomplete="name"></label>
+        <label>Email<input name="email" type="email" autocomplete="email"></label>
+        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
+        <label>Address<textarea class="resize-none" name="address" rows="2"></textarea></label>
+        <label>Date of birth<input name="dob" type="date" autocomplete="bday"></label>
+        <label>Aadhaar test ID<input name="aadhaar" autocomplete="off"></label>
+        <label>Passport<input name="passport" autocomplete="off"></label>
+        <button class="ghost wide-button" type="submit">Save locally</button>
+      </form>
+    </details>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

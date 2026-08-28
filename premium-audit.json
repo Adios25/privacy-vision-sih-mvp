@@ -1,0 +1,13 @@
+{
+  "findings": [],
+  "mode": "strict",
+  "projectRoot": "/Users/adios/.codex/.chatgpt-projects/g-p-6a8d6dd4b3a88191b3c1750a665be4c4/privacy-vision-sih-mvp",
+  "schemaVersion": 1,
+  "summary": {
+    "errors": 0,
+    "total": 0,
+    "unresolved": 0,
+    "violations": 0,
+    "warnings": 0
+  }
+}

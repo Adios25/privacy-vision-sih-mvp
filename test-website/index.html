@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en-IN" data-demo-safe-test="true">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Applications | Unified Services Test Portal</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="service-header">
+    <a class="service-brand" href="/" aria-label="Unified Services Test Portal home">
+      <span class="emblem" aria-hidden="true">US</span>
+      <span><strong>Unified Services Test Portal</strong><small>Research and public-service applications</small></span>
+    </a>
+    <div class="header-status"><span aria-hidden="true"></span>Synthetic test system</div>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <p class="breadcrumb">Services <span aria-hidden="true">/</span> Applications <span aria-hidden="true">/</span> Current case</p>
+        <h1 id="page-title">Application case file</h1>
+        <p>Choose a service, review the applicant record, and complete the required destination fields.</p>
+      </div>
+      <div class="scenario-control">
+        <label for="scenario">Service case</label>
+        <select id="scenario" name="scenario">
+          <option value="internship">Space internship application</option>
+          <option value="kyc">Aadhaar-like KYC</option>
+          <option value="telehealth">Telehealth verification</option>
+          <option value="visa">Passport and signature</option>
+        </select>
+        <button id="next-case" class="secondary" type="button" disabled>Next case</button>
+      </div>
+    </section>
+
+    <section class="case-strip" aria-live="polite">
+      <div><small>Service</small><strong id="portal-name"></strong></div>
+      <div><small>Application</small><strong id="task-name"></strong></div>
+      <div><small>Reference</small><strong id="case-reference" class="mono"></strong></div>
+      <div class="case-status"><small>Status</small><strong><span aria-hidden="true"></span>Draft</strong></div>
+    </section>
+
+    <div class="workspace">
+      <aside class="record-panel" aria-labelledby="record-title">
+        <div class="panel-heading">
+          <div><p class="section-label">Source information</p><h2 id="record-title">Applicant record</h2></div>
+          <span class="record-state">Prefilled</span>
+        </div>
+        <p class="panel-copy">Existing values held by the selected service. Review them before completing the application.</p>
+        <dl id="record-list" class="record-list"></dl>
+        <div id="visual-asset" class="visual-asset" hidden></div>
+        <div class="untrusted-note">
+          <strong>Page notice</strong>
+          <p id="untrusted-message"></p>
+          <small>Unverified instruction supplied by the current page.</small>
+        </div>
+      </aside>
+
+      <section class="form-panel" aria-labelledby="form-title">
+        <div class="panel-heading">
+          <div><p class="section-label">Application form</p><h2 id="form-title"></h2></div>
+          <span id="empty-count" class="record-state"></span>
+        </div>
+        <p id="case-description" class="panel-copy"></p>
+
+        <form id="application-form" data-demo-application="true" novalidate>
+          <div id="field-grid" class="field-grid"></div>
+          <div class="field wide">
+            <label for="programme">Programme or service</label>
+            <select id="programme" name="programme"></select>
+          </div>
+          <div class="starting-states" aria-label="Test starting state">
+            <span>Populate test state</span>
+            <button type="button" data-preset="empty" aria-pressed="true" disabled>All empty</button>
+            <button type="button" data-preset="one" aria-pressed="false" disabled>One typed</button>
+            <button type="button" data-preset="two" aria-pressed="false" disabled>Two typed</button>
+            <button type="button" data-preset="many" aria-pressed="false" disabled>Three typed</button>
+          </div>
+          <div id="form-error" class="form-error" role="alert" hidden></div>
+          <div class="form-actions">
+            <button id="clear-form" class="secondary" type="button" disabled>Clear form</button>
+            <button id="submit-form" class="primary" type="submit">Complete application</button>
+          </div>
+        </form>
+
+        <section id="receipt" class="receipt" role="status" tabindex="-1" hidden>
+          <span class="receipt-check" aria-hidden="true">✓</span>
+          <p class="section-label">Synthetic submission complete</p>
+          <h2 id="receipt-title"></h2>
+          <p id="receipt-copy"></p>
+          <button id="reset-after-submit" class="secondary" type="button" disabled>Reset this case</button>
+        </section>
+      </section>
+    </div>
+
+    <footer class="portal-footer">
+      <span>Unified Services test environment</span>
+      <span>No real application is created</span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

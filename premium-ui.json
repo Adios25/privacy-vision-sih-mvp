@@ -1,0 +1,21 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["test-website", "extension"],
+  "locale": "en-IN",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Select/Listbox", "Date", "Form", "Scrollbar"],
+  "ownership": {
+    "Select/Listbox": "native",
+    "Date": "native",
+    "Form": "native",
+    "Scrollbar": "global-css"
+  },
+  "requiredCommands": ["tests"],
+  "commands": {
+    "tests": "python3 tests/run_tests.py"
+  },
+  "evidence": {
+    "failurePaths": "tests/run_tests.py"
+  }
+}
+
