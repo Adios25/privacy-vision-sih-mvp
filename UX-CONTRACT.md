@@ -19,9 +19,9 @@
 |---|---|---|---|---|
 | Change scenario | Website scenario select | Immediate local render | URL and form update | Invalid IDs fall back to the internship case |
 | Scan | Extension scan button | Button stays fixed and reports scanning | Redacted preview, category ledger, leak check, metrics | No context is sent; user gets a specific retry instruction |
-| Local plan | Successful scan | Immediate and offline | Deterministic `TYPE_PLACEHOLDER`/`ABORT` plan from the sanitized graph | A leaking payload blocks all assistance |
-| Ask server | Optional extension planner button | Request can be cancelled by closing popup | Validated structured VLM/server plan replaces the local plan | Invalid/leaking payload is blocked locally; server/model errors are recoverable |
-| Execute safe actions | Extension execute button | Targets are revalidated | Empty supported fields fill; typed/prefilled values remain untouched | Stale page or target mismatch blocks all remaining actions and requests rescan |
+| Local plan | Successful scan | Immediate and offline | Deterministic `TYPE_PLACEHOLDER`/`ABORT` plan plus an explicit high-risk synthetic `CLICK` when present | A leaking payload blocks all assistance |
+| Ask server | Optional extension planner button | Local baseline remains visible while the request runs | Validated structured VLM/server plan appears in a separate server card | Invalid/leaking payload is blocked locally; server/model errors leave the local plan usable |
+| Execute safe actions | Source-specific local or server execute button | Targets are revalidated and the other plan becomes a non-executable comparison | Empty supported fields fill; typed/prefilled values remain untouched | Stale page or target mismatch blocks all remaining actions and requests rescan |
 | Submit | Extension confirmation panel | Confirm button is disabled while executing | Website renders a synthetic receipt | Confirmation is never inferred; invalid target remains blocked |
 | Restore Privvy session | Reopen the Chrome side panel or Firefox popup on the same tab | Sanitized session is read from extension storage | Scan, plan, receipt, and confirmation state return | A different or changed tab requires a new scan |
 | Open Privvy in Chrome | Click Privvy's toolbar icon | Chrome grants temporary active-tab access and Privvy takes a memory-only capture | Persistent side panel opens | Opening from Chrome's generic side-panel picker asks the user to click Privvy's icon |
@@ -43,13 +43,15 @@
 - `TYPE_PLACEHOLDER` may execute only against an empty, visible, enabled, supported control with a matching purpose.
 - `SCROLL` may execute within the current tab.
 - `CLICK` on ordinary controls requires target validation.
-- Submit, consent, upload, payment, deletion, and account-change targets are high risk. The MVP executes only synthetic form submission after a separate extension-owned confirmation.
+- The synthetic completion button is included in the sanitized graph even when below the viewport. A scanned click target remains valid when it is still rendered and enabled but shifts outside the viewport; Privvy scrolls it into view before activation. Removed, hidden, replaced, or disabled targets remain blocked.
+- Submit, consent, upload, payment, deletion, and account-change targets are high risk. Both plan cards display the synthetic submit click as `confirmation_required`; Privvy moves focus to an extension-owned approve/decline choice before it may execute.
 - The website's safe-test marker is capability metadata, not trust by itself; the extension also checks the configured local test origin.
 
 ## Form ownership
 
 - The website uses native select and date controls; platform popup behavior is accepted for current Chrome and Firefox.
 - The website form uses `novalidate`, text errors, preserved values, and first-invalid-field focus.
+- The website's prefill-preservation slate plants zero to three user-entered values before scanning to demonstrate both payload sanitization and execution-time preservation.
 - The extension popup has no destructive browser dialogs. Status and errors are inline live regions.
 
 ## Accessibility and layout

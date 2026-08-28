@@ -1,5 +1,5 @@
 (() => {
-  const CONTENT_VERSION = '1.2.3';
+  const CONTENT_VERSION = '1.3.3';
   if (globalThis.__privvyContentVersion === CONTENT_VERSION) return;
   globalThis.__privvyContentVersion = CONTENT_VERSION;
 
@@ -27,11 +27,17 @@
 
   let lastScan = null;
 
-  function visible(element) {
+  function rendered(element) {
     if (!(element instanceof Element)) return false;
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
-    return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 1 && rect.height > 1 && rect.bottom >= 0 && rect.right >= 0 && rect.top <= innerHeight && rect.left <= innerWidth;
+    return element.isConnected && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 1 && rect.height > 1;
+  }
+
+  function visible(element) {
+    if (!rendered(element)) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.bottom >= 0 && rect.right >= 0 && rect.top <= innerHeight && rect.left <= innerWidth;
   }
 
   function clippedBox(rect) {
@@ -151,7 +157,18 @@
 
   function collectElements(counters, rawTerms, detections) {
     const selectors = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [tabindex]';
-    const nodes = Array.from(document.querySelectorAll(selectors)).filter(visible).slice(0, 160);
+    const isSyntheticCompletionControl = (element) => (
+      element instanceof HTMLButtonElement
+      && element.type === 'submit'
+      && rendered(element)
+      && isSyntheticSafeTest()
+    );
+    // The redacted image remains viewport-only, while the local synthetic
+    // completion control is retained in the sanitized graph even below the
+    // fold so an explicitly approved task can finish after safe field fills.
+    const nodes = Array.from(document.querySelectorAll(selectors))
+      .filter((element) => visible(element) || isSyntheticCompletionControl(element))
+      .slice(0, 160);
     const targetMap = new Map();
     const elements = nodes.map((element, index) => {
       const id = `e${index + 1}`;
@@ -175,11 +192,15 @@
       } else {
         value = sanitizePatterns(element.innerText?.trim() || '', counters, rawTerms);
       }
+      const isSubmitControl = (
+        (element instanceof HTMLButtonElement && element.type === 'submit')
+        || (element instanceof HTMLInputElement && element.type === 'submit')
+      );
       const type = element instanceof HTMLInputElement ? element.type : element.tagName.toLowerCase();
       const text = `${label} ${element.innerText || ''}`.toLowerCase();
       const risk = type === 'file' ? 'UPLOAD'
         : type === 'password' ? 'PASSWORD'
-          : type === 'submit' || /submit|confirm|pay|delete|agree/.test(text) ? 'HIGH_RISK'
+          : isSubmitControl || /submit|complete|confirm|pay|delete|agree/.test(text) ? 'HIGH_RISK'
             : purposeInfo?.category || null;
       return {
         id,
@@ -298,7 +319,7 @@
   }
 
   function isSyntheticSafeTest() {
-    return ['127.0.0.1', 'localhost'].includes(location.hostname)
+    return ['127.0.0.1', 'localhost', '0.0.0.0'].includes(location.hostname)
       && document.documentElement.dataset.demoSafeTest === 'true'
       && Boolean(document.querySelector('form[data-demo-application="true"]'));
   }
@@ -337,8 +358,8 @@
         scrollBy({ top: amount, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         receipt.push({ ...action, status: 'executed', reason: 'Viewport scroll applied.' });
       } else if (action.type === 'CLICK') {
-        if (!(target instanceof HTMLElement) || !visible(target) || target.hasAttribute('disabled')) {
-          receipt.push({ ...action, status: 'blocked', reason: 'Click target is not available.' }); continue;
+        if (!(target instanceof HTMLElement) || !rendered(target) || target.hasAttribute('disabled')) {
+          receipt.push({ ...action, status: 'blocked', reason: 'The scanned click target is no longer rendered or enabled.' }); continue;
         }
         const highRisk = target.matches('button[type="submit"], input[type="submit"]') || /submit|pay|delete|agree|confirm/i.test(`${target.innerText || ''} ${target.getAttribute('aria-label') || ''}`);
         if (highRisk && !message.allowHighRisk) {
@@ -347,8 +368,18 @@
         if (highRisk && !isSyntheticSafeTest()) {
           receipt.push({ ...action, status: 'blocked', reason: 'Automated high-risk clicks are limited to the local synthetic portal.' }); continue;
         }
+        if (!visible(target)) target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+        const containingForm = target.closest('form');
         target.click();
-        receipt.push({ ...action, status: 'executed', reason: highRisk ? 'Synthetic submission executed after approval.' : 'Validated click executed.' });
+        const syntheticSubmissionCompleted = !highRisk || !isSyntheticSafeTest()
+          || !target.isConnected || Boolean(containingForm?.hidden) || !rendered(target);
+        receipt.push({
+          ...action,
+          status: syntheticSubmissionCompleted ? 'executed' : 'blocked',
+          reason: syntheticSubmissionCompleted
+            ? (highRisk ? 'Synthetic submission executed after approval.' : 'Validated click executed.')
+            : 'The submission control ran, but the synthetic portal did not enter its completed state.'
+        });
       } else if (action.type === 'FINISH' || action.type === 'ABORT') {
         receipt.push({ ...action, status: action.type === 'FINISH' ? 'executed' : 'blocked', reason: action.reason || action.message || action.type });
       } else {
@@ -361,7 +392,7 @@
 
   api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
-      if (message?.type === 'PV_PING') sendResponse({ ok: true });
+      if (message?.type === 'PV_PING') sendResponse({ ok: true, contentVersion: CONTENT_VERSION });
       else if (message?.type === 'PV_SCAN_PAGE') sendResponse({ ok: true, data: scanPage() });
       else if (message?.type === 'PV_EXECUTE_ACTIONS') sendResponse({ ok: true, data: executeActions(message) });
       else if (message?.type === 'PV_HIDE_OVERLAY') {

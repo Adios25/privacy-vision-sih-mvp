@@ -46,27 +46,37 @@
       <button id="plan" class="ghost wide-button" type="button" disabled>Optional: ask server-side VLM</button>
     </section>
 
-    <section id="plan-results" class="hidden">
-      <div class="section-heading"><div><small>Sanitized graph only</small><h2>Validated action plan</h2></div><span id="provider" class="engine-badge"></span></div>
-      <p id="planner-message" class="section-copy"></p>
-      <div id="action-list" class="action-list"></div>
+    <section id="local-plan-results" class="plan-panel hidden" data-plan-source="local">
+      <div class="section-heading"><div><small>Offline baseline</small><h2>Local action plan</h2></div><span id="local-provider" class="engine-badge"></span></div>
+      <p id="local-planner-message" class="section-copy"></p>
+      <div id="local-action-list" class="action-list"></div>
+      <button id="execute-local" class="primary wide-button" type="button" disabled>2A. Execute local safe actions</button>
+    </section>
+
+    <section id="server-plan-results" class="plan-panel server-plan hidden" data-plan-source="server">
+      <div class="section-heading"><div><small>Server-side VLM or labelled fallback</small><h2>Validated server action plan</h2></div><span id="server-provider" class="engine-badge"></span></div>
+      <p id="server-planner-message" class="section-copy"></p>
+      <div id="server-action-list" class="action-list"></div>
       <div class="metric-grid three">
         <span><small>Server</small><strong id="server-ms">—</strong></span>
         <span><small>Model</small><strong id="model-ms">—</strong></span>
         <span><small>End to end</small><strong id="e2e-ms">—</strong></span>
       </div>
-      <button id="execute" class="primary wide-button" type="button" disabled>2. Execute safe actions</button>
+      <button id="execute-server" class="primary wide-button" type="button" disabled>2B. Execute validated server actions</button>
     </section>
 
     <section id="execution-results" class="hidden">
-      <div class="section-heading"><div><small>Local validation</small><h2>Execution receipt</h2></div></div>
+      <div class="section-heading"><div><small>Local validation</small><h2>Execution receipt</h2></div><span id="receipt-source" class="engine-badge"></span></div>
       <div id="receipt-list" class="action-list"></div>
     </section>
 
-    <section id="confirmation" class="confirmation hidden" role="region" aria-labelledby="confirmation-title">
-      <strong id="confirmation-title">Submission needs your approval</strong>
-      <p>Privvy found the local synthetic form’s completion control. It will activate it only after this approval.</p>
-      <button id="confirm" class="confirm-button" type="button" disabled>3. Confirm synthetic submission</button>
+    <section id="confirmation" class="confirmation hidden" role="region" aria-live="assertive" aria-labelledby="confirmation-title" tabindex="-1">
+      <strong id="confirmation-title">Approve synthetic submission?</strong>
+      <p id="confirmation-copy">Privvy will activate the approved completion control only on the local synthetic portal.</p>
+      <div class="confirmation-actions">
+        <button id="confirm" class="confirm-button" type="button" disabled>3. Approve and submit test application</button>
+        <button id="cancel-confirmation" class="ghost" type="button">Decline submission</button>
+      </div>
     </section>
 
     <details class="settings">

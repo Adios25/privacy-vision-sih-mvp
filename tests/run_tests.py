@@ -30,7 +30,7 @@ def fixture_payload():
             "elements": [
                 {"id": "e1", "role": "textbox", "enabled": True, "value": "", "purpose": "email", "inputType": "email", "label": "Email", "risk": "EMAIL"},
                 {"id": "e2", "role": "textbox", "enabled": True, "value": "<USER_INPUT_1>", "purpose": "name", "inputType": "text", "label": "Full name", "risk": "PERSON"},
-                {"id": "e3", "role": "button", "enabled": True, "value": "", "purpose": None, "inputType": "submit", "label": "Submit application", "risk": "HIGH_RISK"},
+                {"id": "e13", "role": "button", "enabled": True, "value": "Complete application", "purpose": None, "inputType": "submit", "label": "Complete application", "risk": "HIGH_RISK"},
             ],
             "textBlocks": [],
             "categoryCounts": {"USER_INPUT": 1},
@@ -70,9 +70,22 @@ def main():
     assert "Soumil Bhosle" in website_js and "Soumil Bhosle" in popup_js
     assert "soumil.bhosle@example.test" in website_js and "soumil.bhosle@example.test" in popup_js
     assert "createLocalPlan" in popup_js and "deterministic-schema-v1" in popup_js
+    assert "localPlan" in popup_js and "serverPlan" in popup_js and "executionSource" in popup_js
+    assert "renderPlan(data, 'server')" in popup_js and "renderPlan(createLocalPlan(state.payload.page), 'local')" in popup_js
+    assert "execute-local" in popup_js and "execute-server" in popup_js
+    assert "if (submit) actions.push({ type: 'CLICK'" in popup_js
+    assert "await execute(plan.actions, false)" in popup_js and "requestSubmissionApproval" in popup_js
+    assert "Decline submission" in (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
     assert "pvActiveSession" in popup_js and "storage.session" in popup_js
     assert "profile: state.profile" in popup_js and "profile: state.profile" not in popup_js.split("async function persistSession", 1)[1].split("async function discardPersistedSession", 1)[0]
     assert "renderOverlay" not in extension_js, "Page detection overlays must not remain on the website"
+    assert "function rendered(element)" in extension_js and "!rendered(target)" in extension_js
+    assert "target.scrollIntoView" in extension_js and "syntheticSubmissionCompleted" in extension_js
+    assert "isSyntheticCompletionControl" in extension_js and "visible(element) || isSyntheticCompletionControl(element)" in extension_js
+    assert "isSubmitControl" in extension_js and "element.type === 'submit'" in extension_js
+    assert "submit|complete|confirm|pay|delete|agree" in extension_js
+    assert "'0.0.0.0'" in extension_js
+    assert "contentVersion: CONTENT_VERSION" in extension_js and "response?.contentVersion === CONTENT_VERSION" in popup_js
     assert "action.onClicked" in background_js
     assert "pendingCaptures" in background_js and "CAPTURE_TTL_MS" in background_js
     assert "storage." not in background_js, "Raw toolbar capture must remain memory-only"

@@ -44,7 +44,7 @@ section, details.settings { border: 1px solid var(--border); border-radius: 12px
 .boundary div { display: grid; gap: 3px; }
 .boundary strong { font-size: 12px; }
 .boundary p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
-.control-section, #scan-results, #plan-results, #execution-results { padding: 13px; }
+.control-section, #scan-results, .plan-panel, #execution-results { padding: 13px; }
 label { display: grid; gap: 6px; color: var(--ink); font-size: 11px; font-weight: 750; }
 textarea, input { width: 100%; border: 1px solid var(--border); border-radius: 7px; background: white; color: var(--ink); padding: 9px 10px; font-size: 11px; }
 textarea { resize: none; }
@@ -74,6 +74,7 @@ details { margin-top: 9px; }
 summary { cursor: pointer; color: var(--muted); font-size: 10px; font-weight: 750; }
 pre { max-height: 210px; overflow: auto; padding: 10px; border-radius: 7px; background: var(--ink); color: #baf7e4; white-space: pre-wrap; overflow-wrap: anywhere; font: 9px/1.5 SFMono-Regular, Consolas, monospace; }
 .section-copy { margin: -3px 0 10px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.server-plan { border-left: 3px solid #159d75; }
 .action-list { display: grid; gap: 6px; }
 .action-item { display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 7px; }
 .action-item code { color: #087a55; font: 700 9px SFMono-Regular, Consolas, monospace; }
@@ -88,6 +89,8 @@ pre { max-height: 210px; overflow: auto; padding: 10px; border-radius: 7px; back
 .confirmation strong { font-size: 12px; }
 .confirmation p { margin: 5px 0 10px; color: #724809; font-size: 10px; line-height: 1.45; }
 .confirm-button { width: 100%; background: #704205; color: white; }
+.confirmation-actions { display: grid; gap: 7px; }
+.confirmation-actions .ghost { width: 100%; border-color: #d5b876; background: transparent; color: #704205; }
 .settings { padding: 11px 13px; }
 .settings form { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
 .settings label:first-child, .settings label:nth-child(5), .settings button { grid-column: 1 / -1; }

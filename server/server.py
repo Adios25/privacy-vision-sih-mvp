@@ -230,7 +230,7 @@ def validate_plan(candidate: dict[str, Any], payload: dict[str, Any]) -> dict[st
             target = elements.get(raw.get("targetId"))
             if not target or target.get("role") not in {"button", "link"} or not target.get("enabled"):
                 continue
-            high_risk = target.get("risk") == "HIGH_RISK" or bool(re.search(r"submit|pay|delete|agree|confirm", str(target.get("label", "")), re.I))
+            high_risk = target.get("risk") == "HIGH_RISK" or bool(re.search(r"submit|complete|pay|delete|agree|confirm", str(target.get("label", "")), re.I))
             validated.append({"type": action_type, "targetId": target["id"], "highRisk": high_risk})
         elif action_type == "SCROLL":
             amount = max(-1200, min(1200, int(raw.get("amount", 500))))
