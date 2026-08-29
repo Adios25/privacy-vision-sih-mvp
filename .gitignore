@@ -42,3 +42,13 @@ ENV/
 # Logs & temp
 *.log
 *.tmp
+
+# Privvy Generated & Downloaded Files
+dist/
+node_modules/
+*.pt
+*.onnx
+extension/ort.*
+extension/ort-*
+extension/tesseract*
+extension/*.traineddata.gz

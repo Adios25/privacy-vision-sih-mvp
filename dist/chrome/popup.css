@@ -95,5 +95,44 @@ pre { max-height: 210px; overflow: auto; padding: 10px; border-radius: 7px; back
 .settings form { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
 .settings label:first-child, .settings label:nth-child(5), .settings button { grid-column: 1 / -1; }
 
+.yolo-debug-info {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8faf9;
+  font-size: 10px;
+  display: grid;
+  gap: 6px;
+}
+.debug-title {
+  font-weight: 750;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.debug-row span {
+  color: var(--muted);
+}
+.debug-row strong {
+  font-family: SFMono-Regular, Consolas, monospace;
+}
+.yolo-detections-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: SFMono-Regular, Consolas, monospace;
+  font-weight: 700;
+  color: #087a55;
+}
+
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 @media (forced-colors: active) { * { forced-color-adjust: auto; } }

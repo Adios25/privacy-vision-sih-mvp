@@ -129,86 +129,285 @@ function mergeDetections(domDetections, visualDetections) {
   return output;
 }
 
-function clusterCells(active, cols, rows, cellSize, scaleX, scaleY) {
-  const seen = new Set(); const boxes = [];
-  for (const start of active) {
-    if (seen.has(start)) continue;
-    const queue = [start]; seen.add(start); let minX = cols; let minY = rows; let maxX = 0; let maxY = 0; let cells = 0;
-    while (queue.length) {
-      const index = queue.shift(); const x = index % cols; const y = Math.floor(index / cols); cells += 1;
-      minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-      [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].forEach(([nx, ny]) => {
-        const next = ny * cols + nx;
-        if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && active.has(next) && !seen.has(next)) { seen.add(next); queue.push(next); }
+class VisualDetector {
+  constructor() {
+    this.session = null;
+    this.backend = 'none';
+    this.initialized = false;
+    this._initPromise = null;
+  }
+
+  getBackend() {
+    return this.backend;
+  }
+
+  async initialize() {
+    // Guard against concurrent initialization calls (e.g. from React StrictMode or repeated scans)
+    if (this.initialized) return;
+    if (this._initPromise) return this._initPromise;
+
+    this._initPromise = this._doInitialize();
+    return this._initPromise;
+  }
+
+  async _doInitialize() {
+    try {
+      // Step 1: Configure WASM paths using chrome.runtime.getURL so the extension
+      // can resolve its bundled WASM binary correctly regardless of context.
+      // numThreads=1 avoids SharedArrayBuffer / crossOriginIsolated requirement
+      // that Chrome extension side panels cannot satisfy.
+      const wasmDir = (typeof chrome !== 'undefined' && chrome.runtime?.getURL)
+        ? chrome.runtime.getURL('')
+        : './';
+
+      ort.env.wasm.wasmPaths = wasmDir;
+      ort.env.wasm.numThreads = 1;
+
+      // Step 2: Resolve the model URL — must be an extension URL, not a bare path
+      const modelUrl = (typeof chrome !== 'undefined' && chrome.runtime?.getURL)
+        ? chrome.runtime.getURL('yolo11n.onnx')
+        : './yolo11n.onnx';
+
+      // Step 3: Try WebGPU (hardware-accelerated) only if navigator.gpu is available
+      if (typeof navigator !== 'undefined' && navigator.gpu) {
+        try {
+          this.session = await ort.InferenceSession.create(modelUrl, {
+            executionProviders: ['webgpu']
+          });
+          this.backend = 'WebGPU';
+          this.initialized = true;
+          console.log('[Privvy YOLO] Initialized on WebGPU backend');
+          return;
+        } catch (gpuErr) {
+          console.warn('[Privvy YOLO] WebGPU failed, falling back to WASM:', gpuErr.message);
+        }
+      } else {
+        console.log('[Privvy YOLO] navigator.gpu not available, using WASM backend');
+      }
+
+      // Step 4: WASM fallback (single-threaded to avoid crossOriginIsolated requirement)
+      this.session = await ort.InferenceSession.create(modelUrl, {
+        executionProviders: ['wasm']
       });
+      this.backend = 'WASM';
+      this.initialized = true;
+      console.log('[Privvy YOLO] Initialized on WASM backend');
+    } catch (err) {
+      this._initPromise = null; // Allow retry on next call
+      console.error('[Privvy YOLO] All backends failed:', err);
+      throw err;
     }
-    if (cells >= 1) boxes.push({
-      category: 'FACE', source: 'local-pixel-classifier', confidence: Math.min(.92, .66 + cells * .04),
-      rect: { x: minX * cellSize * scaleX, y: minY * cellSize * scaleY, width: (maxX - minX + 1) * cellSize * scaleX, height: (maxY - minY + 1) * cellSize * scaleY }
+  }
+
+  async detect(imageBitmap, confThreshold = 0.25, iouThreshold = 0.45) {
+    const started = performance.now();
+    await this.initialize();
+    const initMs = performance.now() - started;
+
+    const preprocessStart = performance.now();
+    const imgWidth = imageBitmap.width;
+    const imgHeight = imageBitmap.height;
+    
+    const scale = Math.min(640 / imgWidth, 640 / imgHeight);
+    const newWidth = Math.round(imgWidth * scale);
+    const newHeight = Math.round(imgHeight * scale);
+    const padX = Math.floor((640 - newWidth) / 2);
+    const padY = Math.floor((640 - newHeight) / 2);
+
+    const canvas = new OffscreenCanvas(640, 640);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#727272';
+    ctx.fillRect(0, 0, 640, 640);
+    ctx.drawImage(imageBitmap, padX, padY, newWidth, newHeight);
+
+    const imgData = ctx.getImageData(0, 0, 640, 640);
+    const data = imgData.data;
+
+    const float32Data = new Float32Array(3 * 640 * 640);
+    for (let i = 0; i < 640 * 640; i++) {
+      float32Data[i] = data[i * 4] / 255.0;
+      float32Data[640 * 640 + i] = data[i * 4 + 1] / 255.0;
+      float32Data[2 * 640 * 640 + i] = data[i * 4 + 2] / 255.0;
+    }
+
+    const inputTensor = new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
+    const preprocessMs = performance.now() - preprocessStart;
+
+    const inferenceStart = performance.now();
+    const feeds = {};
+    feeds[this.session.inputNames[0]] = inputTensor;
+    const outputs = await this.session.run(feeds);
+    const outputTensor = outputs[this.session.outputNames[0]];
+    const outputData = outputTensor.data;
+    const inferenceMs = performance.now() - inferenceStart;
+
+    const postprocessStart = performance.now();
+    const numBoxes = 8400;
+    const numClasses = 80;
+    const cocoClasses = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"];
+
+    const candidates = [];
+    for (let col = 0; col < numBoxes; col++) {
+      let maxScore = -1;
+      let maxClassId = -1;
+      for (let cl = 0; cl < numClasses; cl++) {
+        const score = outputData[(4 + cl) * numBoxes + col];
+        if (score > maxScore) {
+          maxScore = score;
+          maxClassId = cl;
+        }
+      }
+
+      if (maxScore >= confThreshold) {
+        const xc = outputData[0 * numBoxes + col];
+        const yc = outputData[1 * numBoxes + col];
+        const w = outputData[2 * numBoxes + col];
+        const h = outputData[3 * numBoxes + col];
+        const left = xc - w / 2;
+        const top = yc - h / 2;
+
+        candidates.push({
+          classId: maxClassId,
+          className: cocoClasses[maxClassId] || `class_${maxClassId}`,
+          confidence: maxScore,
+          bbox: [left, top, w, h]
+        });
+      }
+    }
+
+    const nmsDetections = this.nms(candidates, iouThreshold);
+
+    const finalDetections = nmsDetections.map(det => {
+      const [x, y, w, h] = det.bbox;
+      const origX = (x - padX) / scale;
+      const origY = (y - padY) / scale;
+      const origW = w / scale;
+      const origH = h / scale;
+
+      return {
+        class: det.className,
+        confidence: det.confidence,
+        bbox: {
+          x: Math.max(0, Math.round(origX)),
+          y: Math.max(0, Math.round(origY)),
+          width: Math.round(origW),
+          height: Math.round(origH)
+        }
+      };
     });
+
+    const postprocessMs = performance.now() - postprocessStart;
+    const totalMs = performance.now() - started;
+
+    return {
+      detections: finalDetections,
+      metrics: {
+        initMs: Math.round(initMs),
+        preprocessMs: Math.round(preprocessMs),
+        inferenceMs: Math.round(inferenceMs),
+        postprocessMs: Math.round(postprocessMs),
+        totalMs: Math.round(totalMs)
+      }
+    };
   }
-  return boxes.filter((box) => box.rect.width >= 18 && box.rect.height >= 18 && box.rect.width < innerWidth * .7);
+
+  nms(candidates, iouThreshold) {
+    candidates.sort((a, b) => b.confidence - a.confidence);
+    const selected = [];
+    for (const cand of candidates) {
+      let keep = true;
+      for (const sel of selected) {
+        if (this.iou(cand.bbox, sel.bbox) > iouThreshold) {
+          keep = false;
+          break;
+        }
+      }
+      if (keep) {
+        selected.push(cand);
+      }
+    }
+    return selected;
+  }
+
+  iou(boxA, boxB) {
+    const xA = Math.max(boxA[0], boxB[0]);
+    const yA = Math.max(boxA[1], boxB[1]);
+    const xB = Math.min(boxA[0] + boxA[2], boxB[0] + boxB[2]);
+    const yB = Math.min(boxA[1] + boxA[3], boxB[1] + boxB[3]);
+
+    const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+    const boxAArea = boxA[2] * boxA[3];
+    const boxBArea = boxB[2] * boxB[3];
+    const unionArea = boxAArea + boxBArea - interArea;
+    return unionArea > 0 ? interArea / unionArea : 0;
+  }
 }
 
-async function webGpuSkinModel(imageData, viewport) {
-  if (!navigator.gpu) throw new Error('WebGPU unavailable');
-  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'low-power' });
-  if (!adapter) throw new Error('No WebGPU adapter');
-  const device = await adapter.requestDevice();
-  const pixels = new Uint32Array(imageData.data.buffer.slice(0));
-  const width = imageData.width; const height = imageData.height; const cellSize = 24;
-  const cols = Math.ceil(width / cellSize); const rows = Math.ceil(height / cellSize);
-  const input = device.createBuffer({ size: pixels.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  const counts = device.createBuffer({ size: cols * rows * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  const readback = device.createBuffer({ size: cols * rows * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-  device.queue.writeBuffer(input, 0, pixels);
-  const shader = device.createShaderModule({ code: `
-    @group(0) @binding(0) var<storage, read> px: array<u32>;
-    @group(0) @binding(1) var<storage, read_write> score: array<atomic<u32>>;
-    @compute @workgroup_size(64)
-    fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-      let i = gid.x;
-      if (i >= ${pixels.length}u) { return; }
-      let p = px[i]; let r = p & 255u; let g = (p >> 8u) & 255u; let b = (p >> 16u) & 255u;
-      let maxc = max(r, max(g, b)); let minc = min(r, min(g, b));
-      let skin = r > 95u && g > 40u && b > 20u && (maxc - minc) > 15u && r > g && r > b && (r - g) > 12u;
-      if (skin) { let x = i % ${width}u; let y = i / ${width}u; let cell = (y / ${cellSize}u) * ${cols}u + (x / ${cellSize}u); atomicAdd(&score[cell], 1u); }
-    }` });
-  const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module: shader, entryPoint: 'main' } });
-  const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: input } }, { binding: 1, resource: { buffer: counts } }] });
-  const encoder = device.createCommandEncoder(); const pass = encoder.beginComputePass();
-  pass.setPipeline(pipeline); pass.setBindGroup(0, bindGroup); pass.dispatchWorkgroups(Math.ceil(pixels.length / 64)); pass.end();
-  encoder.copyBufferToBuffer(counts, 0, readback, 0, cols * rows * 4); device.queue.submit([encoder.finish()]);
-  await readback.mapAsync(GPUMapMode.READ);
-  const values = new Uint32Array(readback.getMappedRange().slice(0)); readback.unmap(); device.destroy();
-  const active = new Set();
-  values.forEach((count, index) => { if (count > cellSize * cellSize * .16) active.add(index); });
-  return clusterCells(active, cols, rows, cellSize, viewport.width / width, viewport.height / height);
-}
+const PRIVACY_POLICY = {
+  "person": { category: "FACE", action: "REDACT" },
+  "face": { category: "FACE", action: "REDACT" },
+  "signature": { category: "SIGNATURE", action: "REDACT" },
+  "id card": { category: "IDENTITY_DOCUMENT", action: "REDACT" },
+  "passport": { category: "IDENTITY_DOCUMENT", action: "REDACT" },
+  "qr code": { category: "QR_BARCODE", action: "REDACT" }
+};
 
-function cpuSkinModel(imageData, viewport) {
-  const width = imageData.width; const height = imageData.height; const cellSize = 24;
-  const cols = Math.ceil(width / cellSize); const rows = Math.ceil(height / cellSize); const counts = new Uint32Array(cols * rows);
-  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
-    const offset = (y * width + x) * 4; const r = imageData.data[offset]; const g = imageData.data[offset + 1]; const b = imageData.data[offset + 2];
-    if (r > 95 && g > 40 && b > 20 && Math.max(r, g, b) - Math.min(r, g, b) > 15 && r > g && r > b && r - g > 12) counts[Math.floor(y / cellSize) * cols + Math.floor(x / cellSize)] += 1;
-  }
-  const active = new Set(); counts.forEach((count, index) => { if (count > cellSize * cellSize * .16) active.add(index); });
-  return clusterCells(active, cols, rows, cellSize, viewport.width / width, viewport.height / height);
-}
+const visualDetector = new VisualDetector();
 
 async function localVisionModel(dataUrl, viewport) {
   const started = performance.now();
-  const image = await createImageBitmap(await (await fetch(dataUrl)).blob());
-  const maxWidth = 640; const scale = Math.min(1, maxWidth / image.width);
-  const canvas = new OffscreenCanvas(Math.round(image.width * scale), Math.round(image.height * scale));
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  let engine = 'Canvas CPU pixel classifier'; let detections;
-  try { detections = await webGpuSkinModel(imageData, viewport); engine = 'WebGPU pixel classifier'; }
-  catch { detections = cpuSkinModel(imageData, viewport); }
-  return { detections, engine, ms: Math.round((performance.now() - started) * 10) / 10 };
+
+  // Convert the data URL to an ImageBitmap for ONNX input
+  let image;
+  try {
+    image = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  } catch (imgErr) {
+    console.error('[Privvy YOLO] Failed to decode screenshot:', imgErr);
+    return { detections: [], engine: 'YOLO11n (error)', ms: 0 };
+  }
+
+  let result;
+  try {
+    result = await visualDetector.detect(image);
+  } catch (inferErr) {
+    console.error('[Privvy YOLO] Inference failed:', inferErr);
+    $('#yolo-backend').textContent = 'Error';
+    $('#yolo-latency').textContent = '—';
+    $('#yolo-detections').innerHTML = `<span style="color:#f87171">⚠ ${inferErr.message}</span>`;
+    return { detections: [], engine: 'YOLO11n (error)', ms: 0 };
+  }
+
+  const detections = [];
+  for (const det of result.detections) {
+    const policy = PRIVACY_POLICY[det.class];
+    if (policy && policy.action === 'REDACT') {
+      detections.push({
+        category: policy.category,
+        source: 'YOLO11n',
+        confidence: det.confidence,
+        rect: det.bbox
+      });
+    }
+  }
+
+  const backend = visualDetector.getBackend();
+  const latencyMs = Math.round(result.metrics.totalMs);
+
+  $('#yolo-backend').textContent = backend;
+  $('#yolo-latency').textContent = `${latencyMs} ms`;
+  if (result.detections.length === 0) {
+    $('#yolo-detections').innerHTML = '<span>No objects detected</span>';
+  } else {
+    $('#yolo-detections').innerHTML = result.detections.map(det =>
+      `<span>✓ ${det.class.charAt(0).toUpperCase() + det.class.slice(1)} (${Math.round(det.confidence * 100)}%)</span>`
+    ).join('');
+  }
+
+  return {
+    detections,
+    engine: `YOLO11n (${backend})`,
+    ms: latencyMs
+  };
 }
 
 async function drawRedactedPreview(dataUrl, scan, detections) {

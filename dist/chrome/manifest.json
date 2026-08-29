@@ -25,6 +25,18 @@
     "default_path": "popup.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
-  }
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "*.wasm",
+        "*.mjs",
+        "yolo11n.onnx"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

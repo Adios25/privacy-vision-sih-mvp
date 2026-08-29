@@ -94,7 +94,7 @@ def main():
     assert "data-preset=\"many\"" in (ROOT / "test-website" / "index.html").read_text(encoding="utf-8")
     for path in (ROOT / "test-website", ROOT / "extension"):
         for source in path.glob("*"):
-            if source.is_file():
+            if source.is_file() and source.suffix in (".js", ".html", ".css", ".json", ".mjs"):
                 content = source.read_text(encoding="utf-8")
                 assert "Ananya Rao" not in content and "ananya.rao@example.test" not in content, f"Legacy identity remains in {source}"
 

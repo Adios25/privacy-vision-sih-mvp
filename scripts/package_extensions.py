@@ -17,8 +17,9 @@ def build(name: str, manifest: str) -> Path:
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
-    for filename in FILES:
-        shutil.copy2(SOURCE / filename, target / filename)
+    for path in SOURCE.iterdir():
+        if path.is_file() and path.name not in ("manifest.json", "manifest.firefox.json"):
+            shutil.copy2(path, target / path.name)
     manifest_data = json.loads((SOURCE / manifest).read_text(encoding="utf-8"))
     (target / "manifest.json").write_text(json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8")
     legacy_archive = DIST / f"privacy-vision-sih-{name}.zip"
