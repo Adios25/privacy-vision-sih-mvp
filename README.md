@@ -87,7 +87,7 @@ Privvy is architected into three independently functioning, decoupled components
 | Feature | How Privvy Implements It | Privacy / Safety Guarantee |
 |---|---|---|
 | **Local Text & Pattern Detection** | Regex patterns (`EMAIL`, `PHONE`, `AADHAAR`, `PAN`, `PASSPORT`, `CARD`, `IP`) + DOM semantic traversal (`data-field-purpose`, `<label>`, `autocomplete`, `<dt>/<dd>`). | Raw terms are indexed locally into an ephemeral `Set` and never transmitted across the network. |
-| **Visual Element & Face Classifier** | Local WebGPU compute shader (`webGpuSkinModel`) with automatic fallback to Canvas CPU pixel scanning (`cpuSkinModel`). | Detects facial regions and planted visual assets (ID cards, signatures) directly on-device. |
+| **Visual Element & Face Classifier** | Local WebGPU ONNX Runtime Web inference (`VisualDetector` using YOLO11n) with automatic fallback to WebAssembly (WASM). | Detects facial regions and portraits directly on-device. Redaction masks original pixels completely. |
 | **Solid Bounding-Box Redaction** | Bounding boxes are stamped with `#071A18` solid fills and tagged with token badges (`<FACE>`, `<EMAIL_1>`). | No translucent blur or reversible mosaic filtering. Zero raw image pixels leave the browser. |
 | **Prefill Preservation (v1.3.3)** | Evaluated via portal presets (`One typed`, `Two typed`, `Many typed`). Assigns `<USER_INPUT_n>` placeholders to existing content. | Agent strictly preserves existing values and only fills empty target controls. |
 | **Client-Side Outbound Leak Check** | Serializes the complete request JSON and performs substring search against all locally detected raw terms. | If a single raw term appears in the structured graph, network planning is immediately blocked (`status: 'blocked'`). |
@@ -341,10 +341,25 @@ All Privvy SIH tests passed.
 
 ---
 
+## 📷 Local Visual Perception with YOLO
+
+Privvy performs local visual perception inside the browser using **YOLO11n** running on **ONNX Runtime Web**. This replaces remote vision-based PII detection entirely.
+
+### Key Details:
+- **Model Used:** YOLO11-Nano (`yolo11n.onnx`, ~10.2 MB).
+- **Backend Acceleration:** Attempts **WebGPU** for hardware acceleration, falling back automatically to **WebAssembly (WASM)**.
+- **Preprocessing:** Resizes and letterboxes screenshots to `640x640` with standard grey padding, normalized pixels `[0, 1]`, and CHW Float32 layout.
+- **Postprocessing & NMS:** Performs class filtering, runs custom Non-Maximum Suppression (NMS) to eliminate duplicate bounding boxes, and scales coordinates back to the original browser viewport.
+- **Privacy Policy Integration:** Maps the YOLO `person` class directly to the `<FACE>` redaction category, stamping solid opaque `#071a18` badges to mask the visual area completely.
+- **Pluggable Weights:** The pipeline is modularly designed so that custom weights (e.g., trained to detect ID cards or signatures) can be swapped in by replacing `yolo11n.onnx` and updating `PRIVACY_POLICY` class maps in `popup.js`.
+
+---
+
 ## 🛡️ Honest Limitations & Design Boundaries
 
 - **Deterministic Pattern Scope:** Text detection uses rule-based heuristics, DOM accessibility semantics, and regular expressions rather than an in-browser heavy LLM NER model.
-- **Fixture-Tuned Pixel Classifier:** The WebGPU/CPU skin detector is a lightweight, low-power compute shader designed for the synthetic photo fixture, not a generic biometric facial recognition pipeline.
+- **YOLO Pre-trained Weights:** Pre-trained YOLO11n (COCO dataset) only detects standard COCO classes (e.g., `person`) and does not natively identify signatures, passports, or ID cards. The extension is architected to allow custom weights for these specialized classes to be plugged in without refactoring.
+- **Synthetic Portal Representation:** Standard weights will not detect CSS-drawn synthetic shapes representing face photos on the test portal. Test verification should use real photograph files containing people.
 - **Single-Pass Redaction:** Redaction precision matches detected DOM and visual bounding boxes; it does not currently execute a secondary in-browser OCR pass.
 - **Controlled High-Risk Execution:** Full automated form submission is deliberately gated behind explicit user confirmation and restricted to authenticated local test origins (`127.0.0.1`, `localhost`, `0.0.0.0`).
 - **Meaning of "Leak Check Passed":** The leak check confirms that no locally indexed raw terms appear in the outbound structured payload; it is an active security assertion rather than a claim of absolute mathematical impossibility of re-identification.
