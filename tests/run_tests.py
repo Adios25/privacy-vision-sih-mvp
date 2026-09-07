@@ -61,6 +61,7 @@ def main():
 
     website_js = (ROOT / "test-website" / "app.js").read_text(encoding="utf-8")
     popup_js = (ROOT / "extension" / "popup.js").read_text(encoding="utf-8")
+    ocr_js = (ROOT / "extension" / "ocr.js").read_text(encoding="utf-8")
     background_js = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
     assert "chrome." not in website_js and "browser." not in website_js
     extension_js = (ROOT / "extension" / "content.js").read_text(encoding="utf-8")
@@ -70,6 +71,19 @@ def main():
     assert "Soumil Bhosle" in website_js and "Soumil Bhosle" in popup_js
     assert "soumil.bhosle@example.test" in website_js and "soumil.bhosle@example.test" in popup_js
     assert "createLocalPlan" in popup_js and "deterministic-schema-v1" in popup_js
+    assert "localOcrModel" in popup_js and "PrivvyOCR.LocalOcrDetector" in popup_js
+    assert "local-ocr" in ocr_js and "extractSensitiveOcr" in ocr_js
+    assert "validPaymentCard" in ocr_js and "validPaymentCard" in extension_js
+    assert "pattern.validator" in ocr_js and "pattern.validator" in extension_js
+    assert "ocr.rawTerms" in popup_js and "ocr.rawTerms" not in popup_js.split("async function persistSession", 1)[1].split("async function discardPersistedSession", 1)[0]
+    popup_html = (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
+    assert popup_html.index('src="tesseract.min.js"') < popup_html.index('src="ocr.js"') < popup_html.index('src="popup.js"')
+    assert popup_html.index('src="geometry.js"') < popup_html.index('src="popup.js"')
+    assert "screenshotRectToViewport" in popup_js and "coordinateSpace: 'css-viewport'" in popup_js
+    ocr_setup = (ROOT / "scripts" / "setup_ocr.py").read_text(encoding="utf-8")
+    yolo_setup = (ROOT / "scripts" / "setup_yolo_ort.py").read_text(encoding="utf-8")
+    assert '"--prefix"' in ocr_setup and '"--no-package-lock"' in ocr_setup
+    assert "shell=True" not in yolo_setup and '"--prefix"' in yolo_setup
     assert "localPlan" in popup_js and "serverPlan" in popup_js and "executionSource" in popup_js
     assert "renderPlan(data, 'server')" in popup_js and "renderPlan(createLocalPlan(state.payload.page), 'local')" in popup_js
     assert "execute-local" in popup_js and "execute-server" in popup_js
@@ -103,6 +117,8 @@ def main():
     chrome_manifest = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
     firefox_manifest = json.loads((ROOT / "extension" / "manifest.firefox.json").read_text(encoding="utf-8"))
     assert chrome_manifest.get("side_panel", {}).get("default_path") == "popup.html"
+    chrome_resources = chrome_manifest.get("web_accessible_resources", [{}])[0].get("resources", [])
+    assert "tesseract-worker.min.js" in chrome_resources and "eng.traineddata.gz" in chrome_resources
     assert "<all_urls>" not in chrome_manifest.get("host_permissions", [])
     assert "<all_urls>" not in firefox_manifest.get("host_permissions", [])
     assert "http://127.0.0.1/*" in chrome_manifest.get("host_permissions", [])
@@ -113,8 +129,9 @@ def main():
 
     node = os.environ.get("PV_TEST_NODE") or shutil_which("node")
     if node:
-        for path in [ROOT / "test-website" / "app.js", ROOT / "extension" / "background.js", ROOT / "extension" / "content.js", ROOT / "extension" / "popup.js"]:
+        for path in [ROOT / "test-website" / "app.js", ROOT / "extension" / "background.js", ROOT / "extension" / "content.js", ROOT / "extension" / "geometry.js", ROOT / "extension" / "ocr.js", ROOT / "extension" / "popup.js"]:
             subprocess.run([node, "--check", str(path)], check=True)
+        subprocess.run([node, str(ROOT / "tests" / "ocr_tests.js")], check=True)
 
     print("All Privvy SIH tests passed.")
 

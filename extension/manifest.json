@@ -16,7 +16,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["*.wasm", "*.mjs", "yolo11n.onnx"],
+      "resources": ["*.wasm", "*.mjs", "tesseract-worker.min.js", "eng.traineddata.gz", "yolo11n.onnx"],
       "matches": ["<all_urls>"]
     }
   ]

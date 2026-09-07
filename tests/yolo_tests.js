@@ -1,5 +1,8 @@
 // YOLO Visual Perception Unit Tests for Privvy
 const assert = require('assert').strict;
+require('../extension/geometry.js');
+
+const { clampRect, screenshotRectToViewport, viewportRectToPreview } = globalThis.PrivvyGeometry;
 
 // Mock classes/functions from popup.js to run in Node.js
 function intersectionOverUnion(boxA, boxB) {
@@ -112,6 +115,29 @@ function testCoordinateConversion() {
   assert.equal(Math.round(origY), 540); // (320 - 140) / 0.3333 = 540
   assert.equal(Math.round(origW), 300); // 100 / 0.3333 = 300
   assert.equal(Math.round(origH), 300); // 100 / 0.3333 = 300
+
+  // Chrome may capture a DPR-2 screenshot while DOM and OCR detections use
+  // CSS viewport pixels. A screenshot box must be normalized exactly once.
+  const cssRect = screenshotRectToViewport(
+    { x: 200, y: 240, width: 160, height: 180 },
+    { width: 1560, height: 1064 },
+    { width: 780, height: 532 }
+  );
+  assert.deepEqual(cssRect, { x: 100, y: 120, width: 80, height: 90 });
+
+  const previewRect = viewportRectToPreview(
+    cssRect,
+    { width: 1560, height: 1064 },
+    { width: 780, height: 532 },
+    0.5
+  );
+  assert.deepEqual(previewRect, { x: 100, y: 120, width: 80, height: 90 });
+
+  const clipped = clampRect(
+    { x: -20, y: 1000, width: 200, height: 200 },
+    { width: 1560, height: 1064 }
+  );
+  assert.deepEqual(clipped, { x: 0, y: 1000, width: 180, height: 64 });
   
   console.log("  ✓ Bounding Box Coordinate Conversion Test Passed.");
 }

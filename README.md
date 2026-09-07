@@ -44,7 +44,7 @@ Privvy is architected into three independently functioning, decoupled components
 │  │  │ - Regex Patterns │  │                   │                 │                   │  │
 │  │  │ - Purpose Rules  │  │                   │  ┌──────────────▼────────────────┐  │  │
 │  │  │ - Value Sentinel │  │                   │  │ Side Panel / Popup UI         │  │  │
-│  │  │ - Local Executer │  │                   │  │ - WebGPU/Canvas Skin Detector │  │  │
+│  │  │ - Local Executer │  │                   │  │ - Local YOLO + OCR Detectors  │  │  │
 │  │  └──────────────────┘  │                   │  │ - Solid Redaction Canvas      │  │  │
 │  └────────────────────────┘                   │  │ - Outbound Leak-Check Guard   │  │  │
 │                                               │  │ - Local Deterministic Planner │  │  │
@@ -114,7 +114,8 @@ privacy-vision-sih-mvp/
 │   ├── content.js                 # Content script (DOM walker, pattern sanitizer, executor)
 │   ├── popup.html                 # Extension side-panel / popup UI markup
 │   ├── popup.css                  # Instrument-panel styling (Mint & deep-ink theme)
-│   └── popup.js                   # Client controller (WebGPU vision, dual planner, execution)
+│   ├── popup.js                   # Client controller (WebGPU vision, dual planner, execution)
+│   └── ocr.js                     # Local OCR PII extraction and bounding-box mapping
 │
 ├── server/                        # Backend planner & test portal server
 │   └── server.py                  # Zero-dependency Python server (HTTP, Ollama/OpenAI VLM, metrics)
@@ -124,8 +125,10 @@ privacy-vision-sih-mvp/
 │   ├── styles.css                 # Navy institutional styling
 │   └── app.js                     # Dynamic scenario generator & preset test fixtures
 │
-├── scripts/                       # Build & packaging utilities
-│   └── package_extensions.py      # Builds unpacked dist/ folders and distributable ZIPs
+├── scripts/                       # Setup and packaging utilities
+│   ├── package_extensions.py      # Builds unpacked dist/ folders and distributable ZIPs
+│   ├── setup_yolo_ort.py          # Packages ONNX Runtime and prepares YOLO weights
+│   └── setup_ocr.py               # Packages Tesseract worker, cores, and English data
 │
 ├── tests/                         # Automated verification & test suite
 │   └── run_tests.py               # Comprehensive unit & integration test runner
@@ -143,7 +146,8 @@ privacy-vision-sih-mvp/
 
 ### Prerequisites
 
-- **Python 3.9+** (No external `pip` packages required; uses standard library).
+- **Python 3.9+** (The server itself uses only the standard library).
+- **Node.js 18+ with npm** (used by the one-time YOLO and OCR asset setup scripts).
 - **Google Chrome** (v116+ recommended for native `sidePanel` support) or **Mozilla Firefox** (v121+).
 
 ---
@@ -172,6 +176,8 @@ Open your browser and visit: **[http://127.0.0.1:8787](http://127.0.0.1:8787)**.
 Ensure the distribution packages and unpacked folders are up-to-date:
 
 ```bash
+python3 scripts/setup_yolo_ort.py
+python3 scripts/setup_ocr.py
 python3 scripts/package_extensions.py
 ```
 
@@ -350,8 +356,22 @@ Privvy performs local visual perception inside the browser using **YOLO11n** run
 - **Backend Acceleration:** Attempts **WebGPU** for hardware acceleration, falling back automatically to **WebAssembly (WASM)**.
 - **Preprocessing:** Resizes and letterboxes screenshots to `640x640` with standard grey padding, normalized pixels `[0, 1]`, and CHW Float32 layout.
 - **Postprocessing & NMS:** Performs class filtering, runs custom Non-Maximum Suppression (NMS) to eliminate duplicate bounding boxes, and scales coordinates back to the original browser viewport.
+- **Coordinate Contract:** YOLO screenshot-pixel boxes are clamped and converted to CSS viewport coordinates before they are merged with DOM and OCR detections, preventing DPR/browser-zoom double scaling.
 - **Privacy Policy Integration:** Maps the YOLO `person` class directly to the `<FACE>` redaction category, stamping solid opaque `#071a18` badges to mask the visual area completely.
 - **Pluggable Weights:** The pipeline is modularly designed so that custom weights (e.g., trained to detect ID cards or signatures) can be swapped in by replacing `yolo11n.onnx` and updating `PRIVACY_POLICY` class maps in `popup.js`.
+
+---
+
+## 🔤 Local OCR Redaction
+
+Privvy runs Tesseract.js 7 entirely inside the extension after screenshot capture and before an outbound payload is created. The worker, matching WASM cores, and English language data are packaged locally, so OCR does not call a CDN.
+
+- OCR words are grouped into lines so spaced phone, Aadhaar-like, and card values can be matched as one region.
+- Email, phone, Aadhaar-like, PAN-like, passport, card-like, IP, and date patterns are detected.
+- Labelled name, address, date-of-birth, passport, and Aadhaar fields are detected from image text.
+- OCR image coordinates are converted to CSS viewport coordinates before masks are merged with DOM and YOLO detections.
+- Recognized raw terms remain ephemeral and are used only by the local leak guard; they are excluded from payload and session storage.
+- OCR failure blocks payload creation rather than allowing an insufficiently inspected screenshot to leave the extension.
 
 ---
 
@@ -360,7 +380,7 @@ Privvy performs local visual perception inside the browser using **YOLO11n** run
 - **Deterministic Pattern Scope:** Text detection uses rule-based heuristics, DOM accessibility semantics, and regular expressions rather than an in-browser heavy LLM NER model.
 - **YOLO Pre-trained Weights:** Pre-trained YOLO11n (COCO dataset) only detects standard COCO classes (e.g., `person`) and does not natively identify signatures, passports, or ID cards. The extension is architected to allow custom weights for these specialized classes to be plugged in without refactoring.
 - **Synthetic Portal Representation:** Standard weights will not detect CSS-drawn synthetic shapes representing face photos on the test portal. Test verification should use real photograph files containing people.
-- **Single-Pass Redaction:** Redaction precision matches detected DOM and visual bounding boxes; it does not currently execute a secondary in-browser OCR pass.
+- **OCR Scope:** OCR currently uses English language data and deterministic PII/label rules. Handwriting and unsupported scripts require additional local language data or specialized recognition models.
 - **Controlled High-Risk Execution:** Full automated form submission is deliberately gated behind explicit user confirmation and restricted to authenticated local test origins (`127.0.0.1`, `localhost`, `0.0.0.0`).
 - **Meaning of "Leak Check Passed":** The leak check confirms that no locally indexed raw terms appear in the outbound structured payload; it is an active security assertion rather than a claim of absolute mathematical impossibility of re-identification.
 

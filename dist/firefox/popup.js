@@ -283,18 +283,26 @@ class VisualDetector {
       const origY = (y - padY) / scale;
       const origW = w / scale;
       const origH = h / scale;
+      const clipped = PrivvyGeometry.clampRect(
+        { x: origX, y: origY, width: origW, height: origH },
+        { width: imgWidth, height: imgHeight }
+      );
+      const left = Math.round(clipped.x);
+      const top = Math.round(clipped.y);
+      const right = Math.round(clipped.x + clipped.width);
+      const bottom = Math.round(clipped.y + clipped.height);
 
       return {
         class: det.className,
         confidence: det.confidence,
         bbox: {
-          x: Math.max(0, Math.round(origX)),
-          y: Math.max(0, Math.round(origY)),
-          width: Math.round(origW),
-          height: Math.round(origH)
+          x: left,
+          y: top,
+          width: Math.max(0, right - left),
+          height: Math.max(0, bottom - top)
         }
       };
-    });
+    }).filter((detection) => detection.bbox.width > 1 && detection.bbox.height > 1);
 
     const postprocessMs = performance.now() - postprocessStart;
     const totalMs = performance.now() - started;
@@ -353,6 +361,7 @@ const PRIVACY_POLICY = {
 };
 
 const visualDetector = new VisualDetector();
+const ocrDetector = new PrivvyOCR.LocalOcrDetector();
 
 async function localVisionModel(dataUrl, viewport) {
   const started = performance.now();
@@ -365,17 +374,20 @@ async function localVisionModel(dataUrl, viewport) {
     console.error('[Privvy YOLO] Failed to decode screenshot:', imgErr);
     return { detections: [], engine: 'YOLO11n (error)', ms: 0 };
   }
+  const imageSize = { width: image.width, height: image.height };
 
   let result;
   try {
     result = await visualDetector.detect(image);
   } catch (inferErr) {
+    image.close();
     console.error('[Privvy YOLO] Inference failed:', inferErr);
     $('#yolo-backend').textContent = 'Error';
     $('#yolo-latency').textContent = '—';
     $('#yolo-detections').innerHTML = `<span style="color:#f87171">⚠ ${inferErr.message}</span>`;
     return { detections: [], engine: 'YOLO11n (error)', ms: 0 };
   }
+  image.close();
 
   const detections = [];
   for (const det of result.detections) {
@@ -385,7 +397,8 @@ async function localVisionModel(dataUrl, viewport) {
         category: policy.category,
         source: 'YOLO11n',
         confidence: det.confidence,
-        rect: det.bbox
+        coordinateSpace: 'css-viewport',
+        rect: PrivvyGeometry.screenshotRectToViewport(det.bbox, imageSize, viewport)
       });
     }
   }
@@ -410,21 +423,45 @@ async function localVisionModel(dataUrl, viewport) {
   };
 }
 
+async function localOcrModel(dataUrl, viewport) {
+  $('#ocr-engine').textContent = 'Tesseract.js 7';
+  $('#ocr-latency').textContent = 'Running…';
+  $('#ocr-detections').textContent = '—';
+  try {
+    const result = await ocrDetector.detect(dataUrl, viewport);
+    $('#ocr-engine').textContent = result.engine;
+    $('#ocr-latency').textContent = `${result.ms} ms`;
+    $('#ocr-detections').textContent = String(result.detections.length);
+    return result;
+  } catch (error) {
+    $('#ocr-engine').textContent = 'Error';
+    $('#ocr-latency').textContent = '—';
+    $('#ocr-detections').textContent = 'Blocked';
+    console.error('[Privvy OCR] Local recognition failed:', error);
+    throw new Error(`Local OCR failed, so Privvy stopped before creating an outbound payload: ${error.message}`);
+  }
+}
+
 async function drawRedactedPreview(dataUrl, scan, detections) {
   const image = await createImageBitmap(await (await fetch(dataUrl)).blob());
   const canvas = $('#preview'); const ratio = Math.min(1, 780 / image.width);
   canvas.width = Math.round(image.width * ratio); canvas.height = Math.round(image.height * ratio);
   const context = canvas.getContext('2d'); context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const scaleX = image.width / scan.viewport.width * ratio; const scaleY = image.height / scan.viewport.height * ratio;
+  const imageSize = { width: image.width, height: image.height };
+  const paddingByCategory = { FACE: 5, SIGNATURE: 4, IDENTITY_DOCUMENT: 4, QR_BARCODE: 4 };
   detections.forEach((detection) => {
-    const x = detection.rect.x * scaleX; const y = detection.rect.y * scaleY; const width = detection.rect.width * scaleX; const height = detection.rect.height * scaleY;
-    context.fillStyle = '#071a18'; context.fillRect(Math.max(0, x - 3), Math.max(0, y - 3), width + 6, height + 6);
+    const { x, y, width, height } = PrivvyGeometry.viewportRectToPreview(detection.rect, imageSize, scan.viewport, ratio);
+    const padding = paddingByCategory[detection.category] || (detection.source === 'local-ocr' ? 2 : 3);
+    const left = Math.max(0, x - padding); const top = Math.max(0, y - padding);
+    const right = Math.min(canvas.width, x + width + padding); const bottom = Math.min(canvas.height, y + height + padding);
+    context.fillStyle = '#071a18'; context.fillRect(left, top, right - left, bottom - top);
     if (width > 32 && height > 12) { context.fillStyle = '#42e6b1'; context.font = '700 9px monospace'; context.fillText(`<${detection.category}>`, x + 3, y + 3); }
   });
+  image.close();
   return canvas.toDataURL('image/jpeg', .78);
 }
 
-function buildPayload(scan, redactedImage, vision, detections) {
+function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms) {
   const categoryCounts = detections.reduce((summary, item) => { summary[item.category] = (summary[item.category] || 0) + 1; return summary; }, {});
   const payload = {
     protocolVersion: '1.0',
@@ -432,12 +469,20 @@ function buildPayload(scan, redactedImage, vision, detections) {
     page: { ...scan.page, categoryCounts },
     stateHash: scan.stateHash,
     imageDataUrl: redactedImage,
-    redactionManifest: detections.map((item) => ({ category: item.category, source: item.source, confidence: item.confidence, rect: item.rect })),
-    clientMetrics: { ...scan.clientMetrics, visionMs: vision.ms, visionEngine: vision.engine, webGpuAvailable: Boolean(navigator.gpu) },
+    redactionManifest: detections.map((item) => ({ category: item.category, source: item.source, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
+    clientMetrics: {
+      ...scan.clientMetrics,
+      visionMs: vision.ms,
+      visionEngine: vision.engine,
+      webGpuAvailable: Boolean(navigator.gpu),
+      ocrMs: ocr.ms,
+      ocrEngine: ocr.engine,
+      ocrSensitiveRegions: ocr.detections.length
+    },
     leakCheck: { status: 'pending', knownRawTermsInStructuredPayload: 0 }
   };
   const structured = JSON.stringify({ ...payload, imageDataUrl: '<REDACTED_IMAGE_DATA>' });
-  const leaked = scan.rawTerms.filter((term) => normalizedIncludes(structured, term));
+  const leaked = rawTerms.filter((term) => normalizedIncludes(structured, term));
   payload.leakCheck = { status: leaked.length ? 'blocked' : 'passed', knownRawTermsInStructuredPayload: leaked.length };
   return payload;
 }
@@ -451,6 +496,9 @@ function renderScan() {
   $('#leak-status').style.color = passed ? '#087a55' : '#b42332';
   $('#scan-ms').textContent = `${state.payload.clientMetrics.totalScanMs} ms`;
   $('#vision-ms').textContent = `${state.payload.clientMetrics.visionMs} ms`;
+  $('#ocr-engine').textContent = state.payload.clientMetrics.ocrEngine || 'Tesseract.js 7';
+  $('#ocr-latency').textContent = state.payload.clientMetrics.ocrMs == null ? '—' : `${state.payload.clientMetrics.ocrMs} ms`;
+  $('#ocr-detections').textContent = String(state.payload.clientMetrics.ocrSensitiveRegions || 0);
   const payloadBytes = new Blob([JSON.stringify(state.payload)]).size;
   $('#payload-size').textContent = `${Math.round(payloadBytes / 1024)} KB`;
   $('#memory').textContent = state.payload.clientMetrics.jsHeapBytes ? `${Math.round(state.payload.clientMetrics.jsHeapBytes / 1048576)} MB` : 'N/A';
@@ -494,10 +542,14 @@ async function scanPage() {
       type: 'PV_CAPTURE_VISIBLE_TAB', tabId: state.tabId, windowId: state.windowId
     });
     if (!capture?.ok) throw new Error(capture?.error || 'Visible-tab capture failed.');
-    const vision = await localVisionModel(capture.dataUrl, response.data.viewport);
-    const detections = mergeDetections(response.data.detections, vision.detections);
+    const [vision, ocr] = await Promise.all([
+      localVisionModel(capture.dataUrl, response.data.viewport),
+      localOcrModel(capture.dataUrl, response.data.viewport)
+    ]);
+    const detections = mergeDetections(response.data.detections, [...vision.detections, ...ocr.detections]);
+    const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
     const redacted = await drawRedactedPreview(capture.dataUrl, response.data, detections);
-    state.scan = response.data; state.payload = buildPayload(response.data, redacted, vision, detections);
+    state.scan = response.data; state.payload = buildPayload(response.data, redacted, vision, ocr, detections, rawTerms);
     state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = [];
     renderScan();
     renderPlan(createLocalPlan(state.payload.page), 'local');
