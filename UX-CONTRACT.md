@@ -29,6 +29,7 @@
 ## Privacy invariants
 
 - Input and textarea values are inspected locally whether they came from HTML, autofill, website JavaScript, or user typing.
+- Text embedded in the captured screenshot is recognized by packaged local OCR before redaction; raw OCR text is neither persisted nor transmitted.
 - Any non-empty sensitive value becomes a typed placeholder in the UI graph and its entire visible control box is masked in the screenshot.
 - Pattern-like PII typed into a generically labelled field is still detected.
 - Raw page text, screenshot pixels, profile values, and placeholder mappings stay in the extension.
@@ -37,6 +38,7 @@
 - The deterministic local planner receives the sanitized graph only; it never receives the local profile or placeholder mapping.
 - The server receives only the redacted screenshot, sanitized graph, category counts, metrics, state hash, and task.
 - A known-term leak-check failure disables all network planning.
+- If the local OCR worker, WASM core, or language model fails to load, payload creation and network planning stop.
 
 ## Risk and confirmation
 

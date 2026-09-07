@@ -50,6 +50,12 @@
         <div class="debug-row"><span>Inference:</span><strong id="yolo-latency">—</strong></div>
         <div class="debug-row"><span>Detections:</span><div id="yolo-detections" class="yolo-detections-list">—</div></div>
       </div>
+      <div id="ocr-debug-info" class="yolo-debug-info">
+        <div class="debug-title">Local OCR Privacy Scan</div>
+        <div class="debug-row"><span>Engine:</span><strong id="ocr-engine">Tesseract.js 7</strong></div>
+        <div class="debug-row"><span>Recognition:</span><strong id="ocr-latency">—</strong></div>
+        <div class="debug-row"><span>Sensitive regions:</span><strong id="ocr-detections">—</strong></div>
+      </div>
       <button id="plan" class="ghost wide-button" type="button" disabled>Optional: ask server-side VLM</button>
     </section>
 
@@ -103,6 +109,9 @@
   </main>
 
   <script src="ort.all.min.js"></script>
+  <script src="tesseract.min.js"></script>
+  <script src="ocr.js"></script>
+  <script src="geometry.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

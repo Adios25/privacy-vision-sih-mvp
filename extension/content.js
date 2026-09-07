@@ -8,10 +8,10 @@
   const PATTERNS = [
     { category: 'EMAIL', regex: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
     { category: 'PHONE', regex: /(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}\b/g },
-    { category: 'AADHAAR_LIKE', regex: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g },
+    { category: 'AADHAAR_LIKE', regex: /(?<!\d)(?<!\d[ -])\d{4}[ -]?\d{4}[ -]?\d{4}(?![ -]?\d)/g },
     { category: 'PAN_LIKE', regex: /\b[A-Z]{5}\d{4}[A-Z]\b/g },
     { category: 'PASSPORT', regex: /\b[A-Z][0-9]{7}\b/g },
-    { category: 'CARD_LIKE', regex: /\b(?:\d[ -]*?){13,19}\b/g },
+    { category: 'CARD_LIKE', regex: /(?<!\d)(?:\d{13,19}|(?:\d{3,6}[ -]){2,5}\d{3,6})(?!\d)/g, validator: validPaymentCard },
     { category: 'IP_ADDRESS', regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g }
   ];
 
@@ -22,8 +22,26 @@
     ['passport', 'PASSPORT', /passport/],
     ['dob', 'DOB', /(date of birth|birth date|\bdob\b|birthday)/],
     ['address', 'ADDRESS', /(address|street|postal|residential)/],
+    ['card', 'CARD_LIKE', /(card number|credit card|debit card|payment card)/],
     ['name', 'PERSON', /(full name|applicant name|patient name|candidate name|your name)/]
   ];
+
+  function validPaymentCard(value) {
+    const digits = String(value).replace(/\D/g, '');
+    if (digits.length < 13 || digits.length > 19) return false;
+    let sum = 0;
+    let doubleDigit = false;
+    for (let index = digits.length - 1; index >= 0; index -= 1) {
+      let digit = Number(digits[index]);
+      if (doubleDigit) {
+        digit *= 2;
+        if (digit > 9) digit -= 9;
+      }
+      sum += digit;
+      doubleDigit = !doubleDigit;
+    }
+    return sum % 10 === 0;
+  }
 
   let lastScan = null;
 
@@ -98,6 +116,7 @@
     for (const pattern of PATTERNS) {
       pattern.regex.lastIndex = 0;
       output = output.replace(pattern.regex, (match) => {
+        if (pattern.validator && !pattern.validator(match)) return match;
         rawTerms.add(match);
         return token(pattern.category, counters);
       });
@@ -148,7 +167,7 @@
       }
       if (sanitized !== original) {
         const matchedCategories = [...sanitized.matchAll(/<([A-Z_]+)_\d+>/g)].map((match) => match[1]);
-        for (const category of matchedCategories) detections.push({ category, source: purposeInfo ? 'semantic-text' : 'local-pattern', confidence: purposeInfo ? 0.92 : 0.98, rect: clippedBox(rect) });
+        for (const category of matchedCategories) detections.push({ category, source: purposeInfo ? 'semantic-text' : 'local-pattern', confidence: purposeInfo ? 0.92 : 0.98, coordinateSpace: 'css-viewport', rect: clippedBox(rect) });
       }
       blocks.push({ text: sanitized.slice(0, 280), rect: clippedBox(rect) });
     }
@@ -184,6 +203,7 @@
             category: purposeInfo?.category || 'USER_INPUT',
             source: 'editable-value',
             confidence: purposeInfo ? 0.96 : 1,
+            coordinateSpace: 'css-viewport',
             rect
           });
         }
@@ -227,7 +247,7 @@
         : context.includes('signature') ? 'SIGNATURE'
           : context.includes('aadhaar') || context.includes('identity document') ? 'IDENTITY_DOCUMENT'
             : context.includes('qr') || context.includes('barcode') ? 'QR_BARCODE' : null;
-      if (category) detections.push({ category, source: 'visual-semantic', confidence: 0.88, rect: clippedBox(element.getBoundingClientRect()) });
+      if (category) detections.push({ category, source: 'visual-semantic', confidence: 0.88, coordinateSpace: 'css-viewport', rect: clippedBox(element.getBoundingClientRect()) });
     }
   }
 
