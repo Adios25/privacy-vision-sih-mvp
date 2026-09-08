@@ -32,6 +32,11 @@
       <div class="section-heading"><div><small>Local processing</small><h2>Redaction ledger</h2></div><strong id="detection-total" class="metric-number">0</strong></div>
       <div id="category-list" class="category-list"></div>
       <div class="proof-row"><span>Known-value leak check</span><strong id="leak-status">Pending</strong></div>
+      <section class="review-panel" aria-labelledby="review-title">
+        <div class="section-heading"><div><small>Human-in-the-loop</small><h2 id="review-title">Review &amp; Adjust Redactions</h2></div></div>
+        <div class="review-counters"><span>Auto-detected Masks: <b id="auto-mask-count">0</b></span><span>User-added Masks: <b id="manual-mask-count">0</b></span><span>Disabled Masks: <b id="disabled-mask-count">0</b></span></div>
+        <div class="action-row"><button id="toggle-overlay" class="ghost" type="button" disabled>Toggle Interactive Overlay</button><button id="approve-redactions" class="primary" type="button" disabled>Confirm &amp; Generate Plan</button></div>
+      </section>
       <canvas id="preview" aria-label="Locally redacted screenshot preview"></canvas>
       <div class="metric-grid">
         <span><small>DOM scan</small><strong id="scan-ms">—</strong></span>
@@ -111,10 +116,11 @@
     </details>
   </main>
 
-  <script src="ort.all.min.js"></script>
+  <script src="ort.wasm.min.js"></script>
   <script src="tesseract.min.js"></script>
   <script src="ocr.js"></script>
   <script src="geometry.js"></script>
+  <script src="redactionMerger.js"></script>
   <script src="browser_api.js"></script>
   <script src="popup.js"></script>
 </body>

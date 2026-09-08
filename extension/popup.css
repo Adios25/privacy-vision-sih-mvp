@@ -67,6 +67,9 @@ button.ghost:hover:not(:disabled) { background: #f4f8f7; }
 .proof-row { display: flex; justify-content: space-between; gap: 10px; margin: 10px 0; padding: 8px 9px; border-radius: 7px; background: #f1f6f4; font-size: 10px; }
 .proof-row strong { color: #087a55; }
 #preview { width: 100%; max-height: 250px; object-fit: contain; border: 1px solid var(--border); border-radius: 8px; background: #dfe7e4; }
+.review-panel { margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #f7fbf9; }
+.review-counters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; color: var(--muted); font-size: 10px; }
+.review-counters span { padding: 4px 6px; border-radius: 5px; background: #e7f0ec; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--border); }
 .metric-grid.three { grid-template-columns: repeat(3, 1fr); }
 .metric-grid span { display: grid; gap: 3px; padding: 8px; background: white; }

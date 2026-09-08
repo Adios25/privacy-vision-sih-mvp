@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EXTENSION_DIR = ROOT / "extension"
 ORT_VERSION = "1.20.0"
 ORT_FILES = [
-    "ort.all.min.js",
+    "ort.wasm.min.js",
     "ort-wasm-simd-threaded.mjs",
     "ort-wasm-simd-threaded.wasm",
     "ort-wasm-simd-threaded.jsep.mjs",

@@ -3,7 +3,7 @@ const state = {
   tabId: null, windowId: null, scan: null, payload: null,
   localPlan: null, serverPlan: null, executionSource: null,
   pendingHighRisk: [], receipt: [], profile: null, requestStarted: 0,
-  phase: 'idle', generation: 0, approvalConsumed: false
+  phase: 'idle', generation: 0, approvalConsumed: false, redactionState: null, captureDataUrl: null, redactionsApproved: false
 };
 const $ = (selector) => document.querySelector(selector);
 const PROFILE_VERSION = 2;
@@ -60,6 +60,8 @@ async function persistSession() {
     executionSource: state.executionSource,
     pendingHighRisk: state.pendingHighRisk,
     receipt: state.receipt,
+    redactionState: state.redactionState,
+    redactionsApproved: state.redactionsApproved,
     savedAt: Date.now()
   };
   try { await storageSet(sessionStore(), { pvActiveSession: saved }); } catch (error) { console.warn('Session persistence unavailable:', error.message); }
@@ -86,12 +88,15 @@ async function activeTab() {
 async function ensureContentScript(tabId) {
   try {
     const response = await promiseCall(api.tabs, 'sendMessage', tabId, { type: 'PV_PING' });
-    if (response?.contentVersion === CONTENT_VERSION) return;
+    if (response?.contentVersion === CONTENT_VERSION) {
+      await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['redactionMerger.js', 'overlayCanvas.js'] });
+      return;
+    }
   } catch (error) {
     // A missing content script is the expected recovery path before injection.
     console.debug('Content script ping failed; injecting it:', error.message);
   }
-  await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['content.js'] });
+  await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['redactionMerger.js', 'overlayCanvas.js', 'content.js'] });
 }
 
 async function sendToTab(message) {
@@ -193,24 +198,8 @@ class VisualDetector {
         ? chrome.runtime.getURL('yolo11n.onnx')
         : './yolo11n.onnx';
 
-      // Step 3: Try WebGPU (hardware-accelerated) only if navigator.gpu is available
-      if (typeof navigator !== 'undefined' && navigator.gpu) {
-        try {
-          this.session = await ort.InferenceSession.create(modelUrl, {
-            executionProviders: ['webgpu']
-          });
-          this.backend = 'WebGPU';
-          this.initialized = true;
-          console.log('[Privvy YOLO] Initialized on WebGPU backend');
-          return;
-        } catch (gpuErr) {
-          console.warn('[Privvy YOLO] WebGPU failed, falling back to WASM:', gpuErr.message);
-        }
-      } else {
-        console.log('[Privvy YOLO] navigator.gpu not available, using WASM backend');
-      }
-
-      // Step 4: WASM fallback (single-threaded to avoid crossOriginIsolated requirement)
+      // The bundled runtime is WASM-only. Do not request WebGPU from it: that
+      // provider is not registered and produces a noisy, avoidable warning.
       this.session = await ort.InferenceSession.create(modelUrl, {
         executionProviders: ['wasm']
       });
@@ -484,23 +473,23 @@ async function drawRedactedPreview(dataUrl, scan, detections) {
     const padding = paddingByCategory[detection.category] || (detection.source === 'local-ocr' ? 2 : 3);
     const left = Math.max(0, x - padding); const top = Math.max(0, y - padding);
     const right = Math.min(canvas.width, x + width + padding); const bottom = Math.min(canvas.height, y + height + padding);
-    context.fillStyle = '#071a18'; context.fillRect(left, top, right - left, bottom - top);
+    context.fillStyle = detection.type === 'MANUAL' ? '#000000' : '#071a18'; context.fillRect(left, top, right - left, bottom - top);
     if (width > 32 && height > 12) { context.fillStyle = '#42e6b1'; context.font = '700 9px monospace'; context.fillText(`<${detection.category}>`, x + 3, y + 3); }
   });
   image.close();
   return canvas.toDataURL('image/jpeg', .78);
 }
 
-function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms) {
+function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, redactionState) {
   const stableDetections = [...detections].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.category.localeCompare(b.category));
   const categoryCounts = stableDetections.reduce((summary, item) => { summary[item.category] = (summary[item.category] || 0) + 1; return summary; }, {});
   const payload = {
     protocolVersion: '1.0',
     task: $('#task').value.trim(),
-    page: { ...scan.page, categoryCounts },
+    page: PrivvyRedaction.applyMasksToPage(scan.page, stableDetections),
     stateHash: scan.stateHash,
     imageDataUrl: redactedImage,
-    redactionManifest: stableDetections.map((item) => ({ category: item.category, source: item.source, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
+    redactionManifest: stableDetections.map((item) => ({ id: item.id, type: item.type, category: item.category, label: item.label, active: item.active, isUserAdded: item.isUserAdded, source: item.source, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
     clientMetrics: {
       ...scan.clientMetrics,
       visionMs: vision.ms,
@@ -515,7 +504,39 @@ function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms) {
   const structured = JSON.stringify({ ...payload, imageDataUrl: '<REDACTED_IMAGE_DATA>' });
   const leaked = rawTerms.filter((term) => normalizedIncludes(structured, term));
   payload.leakCheck = { status: leaked.length ? 'blocked' : 'passed', knownRawTermsInStructuredPayload: leaked.length };
+  payload.redactionState = { autoDetections: redactionState.autoDetections, manualDetections: redactionState.manualDetections };
   return payload;
+}
+
+function renderRedactionReview() {
+  const review = PrivvyRedaction.mergeRedactionState(state.redactionState || {});
+  state.redactionState = review;
+  $('#auto-mask-count').textContent = String(review.autoDetections.length);
+  $('#manual-mask-count').textContent = String(review.manualDetections.length);
+  $('#disabled-mask-count').textContent = String([...review.autoDetections, ...review.manualDetections].filter((item) => !item.active).length);
+  $('#toggle-overlay').disabled = !state.scan;
+  $('#approve-redactions').disabled = !state.scan;
+}
+
+async function rebuildAfterReview(approved = false) {
+  if (!state.scan || !state.captureDataUrl) return;
+  state.redactionState = PrivvyRedaction.mergeRedactionState(state.redactionState);
+  const activeMasks = state.redactionState.mergedActiveMasks;
+  const redacted = await drawRedactedPreview(state.captureDataUrl, state.scan, activeMasks);
+  const metrics = state.payload?.clientMetrics || {};
+  state.payload = buildPayload(state.scan, redacted, { ms: metrics.visionMs || 0, engine: metrics.visionEngine || 'local' }, { ms: metrics.ocrMs || 0, engine: metrics.ocrEngine || 'local', detections: [] }, activeMasks, state.rawTerms || [], state.redactionState);
+  state.redactionsApproved = approved || state.redactionsApproved;
+  renderScan(); renderRedactionReview();
+  renderPlan(createLocalPlan(state.payload.page), 'local');
+  await persistSession();
+}
+
+async function toggleInteractiveOverlay() {
+  if (!state.scan) return;
+  const masks = [...(state.redactionState?.autoDetections || []), ...(state.redactionState?.manualDetections || [])];
+  const response = await sendToTab({ type: 'PV_SHOW_OVERLAY', masks });
+  if (!response?.ok) throw new Error(response?.error || 'Could not open the interactive overlay.');
+  setBoundary('Interactive review open', 'Draw masks over missed regions or click an automatic mask to disable it. All edits stay local.', 'working');
 }
 
 function renderScan() {
@@ -536,7 +557,7 @@ function renderScan() {
   const previewPayload = { ...state.payload, imageDataUrl: `<REDACTED_IMAGE_DATA:${Math.round(state.payload.imageDataUrl.length / 1024)}KB>` };
   $('#payload-json').textContent = JSON.stringify(previewPayload, null, 2);
   $('#scan-results').classList.remove('hidden');
-  $('#plan').disabled = !passed || Boolean(state.settings?.localOnly);
+  $('#plan').disabled = !passed || Boolean(state.settings?.localOnly) || !state.redactionsApproved;
   $('#allow-server-context').disabled = !passed || Boolean(state.settings?.localOnly);
   $('#allow-server-context').checked = false;
   $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden');
@@ -591,12 +612,16 @@ async function scanPage() {
     assertCurrentGeneration(generation);
     const detections = mergeDetections(response.data.detections, [...vision.detections, ...ocr.detections]);
     const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
-    const redacted = await drawRedactedPreview(capture.dataUrl, response.data, detections);
-    state.scan = response.data; state.payload = buildPayload(response.data, redacted, vision, ocr, detections, rawTerms);
+    state.scan = response.data; state.captureDataUrl = capture.dataUrl; state.rawTerms = rawTerms;
+    state.redactionState = PrivvyRedaction.createRedactionState(detections);
+    const activeMasks = PrivvyRedaction.mergeRedactionState(state.redactionState).mergedActiveMasks;
+    const redacted = await drawRedactedPreview(capture.dataUrl, response.data, activeMasks);
+    state.payload = buildPayload(response.data, redacted, vision, ocr, activeMasks, rawTerms, state.redactionState);
     state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = [];
-    state.approvalConsumed = false;
+    state.approvalConsumed = false; state.redactionsApproved = false;
     setPhase('scanned');
     renderScan();
+    renderRedactionReview();
     renderPlan(createLocalPlan(state.payload.page), 'local');
     await persistSession();
   } catch (error) { setPhase('failed'); setBoundary('Scan stopped', error.message, 'blocked'); }
@@ -636,6 +661,7 @@ function validateClientPlan(plan) {
 
 async function requestPlan() {
   if (!state.payload || state.payload.leakCheck.status !== 'passed') { setBoundary('Planning blocked', 'Run a successful local scan first.', 'blocked'); return; }
+  if (!state.redactionsApproved) { setBoundary('Review required', 'Open the interactive overlay and approve the active redaction list before planning.', 'blocked'); return; }
   if (state.executionSource) { setBoundary('Planning locked', 'Clear or rescan the page before requesting another plan after execution begins.', 'blocked'); return; }
   if (state.settings?.localOnly) { setBoundary('Local-only mode', 'Server planning is disabled in settings. The deterministic local plan remains available.', 'idle'); return; }
   if (!$('#allow-server-context').checked) { setBoundary('Approval required', 'Enable the per-scan approval to send sanitized context to the planner.', 'blocked'); return; }
@@ -693,9 +719,12 @@ async function restoreSession() {
   state.executionSource = saved.executionSource || null;
   state.pendingHighRisk = saved.pendingHighRisk || [];
   state.receipt = saved.receipt || [];
+  state.redactionState = saved.redactionState || state.payload.redactionState || null;
+  state.redactionsApproved = Boolean(saved.redactionsApproved);
   state.phase = state.pendingHighRisk.length ? 'executing' : (state.receipt.length ? 'completed' : 'ready');
   if (state.payload.task) $('#task').value = state.payload.task;
   renderScan();
+  renderRedactionReview();
   if (state.localPlan) renderPlan(state.localPlan, 'local');
   if (state.serverPlan) renderPlan(state.serverPlan, 'server');
   if (state.executionSource) $('#plan').disabled = true;
@@ -771,10 +800,10 @@ async function clearSession() {
     // The tab may already be closed; local session cleanup still proceeds.
     console.debug('Overlay cleanup skipped:', error.message);
   }
-  state.generation += 1; setPhase('idle'); state.scan = null; state.payload = null; state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = []; state.approvalConsumed = false;
+  state.generation += 1; setPhase('idle'); state.scan = null; state.payload = null; state.captureDataUrl = null; state.redactionState = null; state.rawTerms = []; state.redactionsApproved = false; state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = []; state.approvalConsumed = false;
   await discardPersistedSession();
   $('#plan').disabled = true; $('#execute-local').disabled = true; $('#execute-server').disabled = true; $('#confirm').disabled = true;
-  $('#scan-results').classList.add('hidden'); $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden'); $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden');
+  $('#scan-results').classList.add('hidden'); $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden'); $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden'); $('#toggle-overlay').disabled = true; $('#approve-redactions').disabled = true;
   $('#engine-badge').textContent = 'Ready'; setBoundary('Nothing inspected', 'Open a website, then choose when this extension may inspect the active tab.');
 }
 
@@ -814,6 +843,15 @@ async function clearProfile() {
   setBoundary('Profile cleared', 'Stored profile fields were removed. Future execution will remain blocked until you provide the needed values.', 'safe');
 }
 
+api.runtime.onMessage.addListener((message) => {
+  if (message?.type !== 'PV_REDACTION_REVIEW' || !state.scan) return false;
+  state.redactionState = PrivvyRedaction.createRedactionState(message.autoDetections || [], message.manualDetections || []);
+  rebuildAfterReview(Boolean(message.approved)).catch((error) => setBoundary('Redaction review stopped', error.message, 'blocked'));
+  return false;
+});
+
+$('#toggle-overlay').addEventListener('click', () => toggleInteractiveOverlay().catch((error) => setBoundary('Overlay unavailable', error.message, 'blocked')));
+$('#approve-redactions').addEventListener('click', () => rebuildAfterReview(true).then(() => setBoundary('Redactions approved', 'The local image and structural payload were rebuilt from the active mask list.', 'safe')).catch((error) => setBoundary('Approval stopped', error.message, 'blocked')));
 $('#scan').addEventListener('click', scanPage);
 $('#plan').addEventListener('click', requestPlan);
 $('#execute-local').addEventListener('click', () => executeSafeActions('local'));

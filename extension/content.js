@@ -425,12 +425,18 @@
     try {
       if (message?.type === 'PV_PING') sendResponse({ ok: true, contentVersion: CONTENT_VERSION });
       else if (message?.type === 'PV_SCAN_PAGE') sendResponse({ ok: true, data: scanPage() });
+      else if (message?.type === 'PV_SHOW_OVERLAY') {
+        if (!globalThis.PrivvyOverlayCanvas) throw new Error('Interactive overlay is unavailable; scan the page again.');
+        sendResponse(globalThis.PrivvyOverlayCanvas.start({ masks: message.masks || [] }));
+      }
       else if (message?.type === 'PV_EXECUTE_ACTIONS') sendResponse({ ok: true, data: executeActions(message) });
       else if (message?.type === 'PV_HIDE_OVERLAY') {
+        globalThis.PrivvyOverlayCanvas?.stop();
         document.getElementById(OVERLAY_ID)?.remove();
         sendResponse({ ok: true });
       }
       else if (message?.type === 'PV_CLEAR_OVERLAY') {
+        globalThis.PrivvyOverlayCanvas?.stop();
         document.getElementById(OVERLAY_ID)?.remove();
         lastScan = null;
         sendResponse({ ok: true });
