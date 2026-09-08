@@ -1,0 +1,14 @@
+{
+  "name": "privvy-extension",
+  "version": "1.3.4",
+  "private": true,
+  "description": "Privvy local privacy-preserving browser agent.",
+  "scripts": {
+    "check:version": "node scripts/check_version.mjs",
+    "build": "node scripts/check_version.mjs && node scripts/package_extensions.mjs && node scripts/check_version.mjs --artifacts",
+    "test": "node tests/yolo_tests.js && node tests/static_checks.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.20.0"
+  }
+}

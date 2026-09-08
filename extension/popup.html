@@ -56,6 +56,7 @@
         <div class="debug-row"><span>Recognition:</span><strong id="ocr-latency">—</strong></div>
         <div class="debug-row"><span>Sensitive regions:</span><strong id="ocr-detections">—</strong></div>
       </div>
+      <label class="check-row"><input id="allow-server-context" type="checkbox" disabled> Allow this scan to send sanitized context to the planner</label>
       <button id="plan" class="ghost wide-button" type="button" disabled>Optional: ask server-side VLM</button>
     </section>
 
@@ -96,6 +97,7 @@
       <summary>Local profile and server settings</summary>
       <form id="settings-form" novalidate>
         <label>Planner server<input name="serverUrl" type="url" value="http://127.0.0.1:8787"></label>
+        <label class="check-row"><input name="localOnly" type="checkbox"> Local-only mode</label>
         <label>Full name<input name="name" autocomplete="name"></label>
         <label>Email<input name="email" type="email" autocomplete="email"></label>
         <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
@@ -104,6 +106,7 @@
         <label>Aadhaar test ID<input name="aadhaar" autocomplete="off"></label>
         <label>Passport<input name="passport" autocomplete="off"></label>
         <button class="ghost wide-button" type="submit">Save locally</button>
+        <button id="clear-profile" class="ghost wide-button" type="button">Clear profile values</button>
       </form>
     </details>
   </main>
@@ -112,6 +115,7 @@
   <script src="tesseract.min.js"></script>
   <script src="ocr.js"></script>
   <script src="geometry.js"></script>
+  <script src="browser_api.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 (() => {
-  const CONTENT_VERSION = '1.3.3';
+  const CONTENT_VERSION = '1.3.4';
   if (globalThis.__privvyContentVersion === CONTENT_VERSION) return;
   globalThis.__privvyContentVersion = CONTENT_VERSION;
 
@@ -345,6 +345,7 @@
   }
 
   function executeActions(message) {
+    if (message.planVersion !== '1.0') throw new Error('This action plan version is unsupported. Scan and plan again.');
     if (!lastScan || message.scanId !== lastScan.scanId) throw new Error('This action plan does not match the latest scan. Scan the page again.');
     const currentHash = hash(fingerprint());
     if (message.expectedStateHash !== currentHash) throw new Error('The page changed after planning. Scan the current state again.');
@@ -356,6 +357,16 @@
     const receipt = [];
     for (const action of message.actions || []) {
       const target = action.targetId ? lastScan.targetMap.get(action.targetId) : null;
+      const preconditions = action.preconditions || {};
+      if (target && (
+        (preconditions.role && preconditions.role !== roleFor(target))
+        || (preconditions.enabled === true && target.disabled)
+        || (preconditions.visible === true && !rendered(target))
+        || (preconditions.empty === true && 'value' in target && String(target.value).trim())
+      )) {
+        receipt.push({ ...action, status: 'blocked', reason: 'A safe action precondition no longer matches the current control.' });
+        continue;
+      }
       if (action.type === 'TYPE_PLACEHOLDER') {
         if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) || !visible(target) || target.disabled || target.readOnly) {
           receipt.push({ ...action, status: 'blocked', reason: 'Target is not an editable visible control.' }); continue;

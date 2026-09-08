@@ -56,7 +56,7 @@ def package_assets() -> list[Path]:
 
     copied = [
         copy_file(tesseract_root / "dist" / "tesseract.min.js"),
-        copy_file(tesseract_root / "dist" / "worker.min.js", "tesseract-worker.min.js"),
+        copy_file(tesseract_root / "dist" / "worker.min.js", "tesseract.worker.min.js"),
         copy_file(language_root / "eng.traineddata.gz"),
     ]
     core_assets = sorted(core_root.glob("tesseract-core*.js")) + sorted(core_root.glob("tesseract-core*.wasm"))
@@ -72,7 +72,7 @@ def validate_assets(paths: list[Path]) -> None:
         raise RuntimeError(f"OCR assets were copied but empty: {', '.join(map(str, empty))}")
     required = {
         "tesseract.min.js",
-        "tesseract-worker.min.js",
+        "tesseract.worker.min.js",
         "eng.traineddata.gz",
         "tesseract-core.wasm.js",
         "tesseract-core.wasm",

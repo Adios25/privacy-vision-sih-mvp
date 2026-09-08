@@ -159,9 +159,9 @@
       if (!getUrl) throw new Error('Extension resource URLs are unavailable.');
       const baseUrl = getUrl.call(globalThis.chrome?.runtime || globalThis.browser.runtime, '');
       return globalThis.Tesseract.createWorker('eng', 1, {
-        workerPath: `${baseUrl}tesseract-worker.min.js`,
+        workerPath: `${baseUrl}tesseract.worker.min.js`,
         corePath: baseUrl,
-        langPath: baseUrl.replace(/\/$/, ''),
+        langPath: baseUrl,
         workerBlobURL: false,
         cacheMethod: 'readOnly'
       });

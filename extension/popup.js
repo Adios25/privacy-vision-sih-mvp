@@ -1,13 +1,14 @@
-const api = globalThis.browser || globalThis.chrome;
+const { api, call: apiCall } = globalThis.PrivvyBrowserApi;
 const state = {
   tabId: null, windowId: null, scan: null, payload: null,
   localPlan: null, serverPlan: null, executionSource: null,
-  pendingHighRisk: [], receipt: [], profile: null, requestStarted: 0
+  pendingHighRisk: [], receipt: [], profile: null, requestStarted: 0,
+  phase: 'idle', generation: 0, approvalConsumed: false
 };
 const $ = (selector) => document.querySelector(selector);
 const PROFILE_VERSION = 2;
-const SESSION_VERSION = 4;
-const CONTENT_VERSION = '1.3.3';
+const SESSION_VERSION = 5;
+const CONTENT_VERSION = '1.3.4';
 
 const defaultProfile = {
   name: 'Soumil Bhosle', email: 'soumil.bhosle@example.test', phone: '+91 98765 43210',
@@ -25,24 +26,27 @@ function setBoundary(title, copy, tone = 'idle') {
   $('#boundary').dataset.tone = tone;
 }
 
-function promiseCall(target, method, ...args) {
-  try {
-    const result = target[method](...args);
-    if (result && typeof result.then === 'function') return result;
-  } catch (error) {
-    return Promise.reject(error);
-  }
-  return new Promise((resolve, reject) => {
-    target[method](...args, (value) => {
-      const error = api.runtime.lastError;
-      if (error) reject(new Error(error.message)); else resolve(value);
-    });
-  });
+const promiseCall = apiCall;
+
+function setPhase(phase) {
+  state.phase = phase;
+}
+
+function currentGeneration() {
+  return state.generation;
+}
+
+function assertCurrentGeneration(generation) {
+  if (generation !== state.generation) throw new Error('This operation became stale; scan the current tab again.');
 }
 
 function sessionStore() {
   return api.storage.session || api.storage.local;
 }
+
+const storageGet = (area, keys) => apiCall(area, 'get', keys);
+const storageSet = (area, values) => apiCall(area, 'set', values);
+const storageRemove = (area, keys) => apiCall(area, 'remove', keys);
 
 async function persistSession() {
   if (!state.tabId || !state.scan || !state.payload) return;
@@ -58,17 +62,22 @@ async function persistSession() {
     receipt: state.receipt,
     savedAt: Date.now()
   };
-  try { await sessionStore().set({ pvActiveSession: saved }); } catch {}
+  try { await storageSet(sessionStore(), { pvActiveSession: saved }); } catch (error) { console.warn('Session persistence unavailable:', error.message); }
 }
 
 async function discardPersistedSession() {
-  try { await sessionStore().remove('pvActiveSession'); } catch {}
+  try { await storageRemove(sessionStore(), 'pvActiveSession'); } catch (error) { console.warn('Session cleanup unavailable:', error.message); }
 }
 
 async function activeTab() {
   const tabs = await promiseCall(api.tabs, 'query', { active: true, currentWindow: true });
   const tab = tabs?.[0];
   if (!tab?.id || !/^https?:|^file:/.test(tab.url || '')) throw new Error('Open a regular website before scanning.');
+  if (state.tabId !== null && state.tabId !== tab.id && state.scan) {
+    state.generation += 1;
+    setPhase('blocked');
+    throw new Error('The active tab changed; scan the current tab again.');
+  }
   state.tabId = tab.id;
   state.windowId = tab.windowId;
   return tab;
@@ -78,7 +87,10 @@ async function ensureContentScript(tabId) {
   try {
     const response = await promiseCall(api.tabs, 'sendMessage', tabId, { type: 'PV_PING' });
     if (response?.contentVersion === CONTENT_VERSION) return;
-  } catch {}
+  } catch (error) {
+    // A missing content script is the expected recovery path before injection.
+    console.debug('Content script ping failed; injecting it:', error.message);
+  }
   await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['content.js'] });
 }
 
@@ -116,17 +128,30 @@ function actionRows(actions, receipt = false) {
 }
 
 function mergeDetections(domDetections, visualDetections) {
-  const output = [...domDetections];
+  const normalize = (item) => ({
+    ...item,
+    source: item.source || 'unknown',
+    confidence: Number.isFinite(Number(item.confidence)) ? Math.max(0, Math.min(1, Number(item.confidence))) : 0,
+    coordinateSpace: item.coordinateSpace || 'css-viewport',
+    rect: {
+      x: Math.max(0, Number(item.rect?.x) || 0), y: Math.max(0, Number(item.rect?.y) || 0),
+      width: Math.max(0, Number(item.rect?.width) || 0), height: Math.max(0, Number(item.rect?.height) || 0)
+    }
+  });
+  const output = domDetections.map(normalize);
   for (const item of visualDetections) {
+    const normalized = normalize(item);
     if (!output.some((existing) => {
-      const left = Math.max(existing.rect.x, item.rect.x); const top = Math.max(existing.rect.y, item.rect.y);
-      const right = Math.min(existing.rect.x + existing.rect.width, item.rect.x + item.rect.width);
-      const bottom = Math.min(existing.rect.y + existing.rect.height, item.rect.y + item.rect.height);
+      const left = Math.max(existing.rect.x, normalized.rect.x); const top = Math.max(existing.rect.y, normalized.rect.y);
+      const right = Math.min(existing.rect.x + existing.rect.width, normalized.rect.x + normalized.rect.width);
+      const bottom = Math.min(existing.rect.y + existing.rect.height, normalized.rect.y + normalized.rect.height);
       const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
-      return existing.category === item.category && intersection > Math.min(existing.rect.width * existing.rect.height, item.rect.width * item.rect.height) * .45;
-    })) output.push(item);
+      return existing.category === normalized.category && intersection > Math.min(existing.rect.width * existing.rect.height, normalized.rect.width * normalized.rect.height) * .45;
+    })) output.push(normalized);
   }
-  return output;
+  return output.filter((item) => item.rect.width > 1 && item.rect.height > 1).sort((a, b) => (
+    a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.category.localeCompare(b.category) || a.source.localeCompare(b.source)
+  )).slice(0, 100);
 }
 
 class VisualDetector {
@@ -438,7 +463,12 @@ async function localOcrModel(dataUrl, viewport) {
     $('#ocr-latency').textContent = '—';
     $('#ocr-detections').textContent = 'Blocked';
     console.error('[Privvy OCR] Local recognition failed:', error);
-    throw new Error(`Local OCR failed, so Privvy stopped before creating an outbound payload: ${error.message}`);
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'The local OCR engine returned an unknown startup error.';
+    throw new Error(`Local OCR failed, so Privvy stopped before creating an outbound payload: ${message}`);
   }
 }
 
@@ -462,14 +492,15 @@ async function drawRedactedPreview(dataUrl, scan, detections) {
 }
 
 function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms) {
-  const categoryCounts = detections.reduce((summary, item) => { summary[item.category] = (summary[item.category] || 0) + 1; return summary; }, {});
+  const stableDetections = [...detections].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.category.localeCompare(b.category));
+  const categoryCounts = stableDetections.reduce((summary, item) => { summary[item.category] = (summary[item.category] || 0) + 1; return summary; }, {});
   const payload = {
     protocolVersion: '1.0',
     task: $('#task').value.trim(),
     page: { ...scan.page, categoryCounts },
     stateHash: scan.stateHash,
     imageDataUrl: redactedImage,
-    redactionManifest: detections.map((item) => ({ category: item.category, source: item.source, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
+    redactionManifest: stableDetections.map((item) => ({ category: item.category, source: item.source, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
     clientMetrics: {
       ...scan.clientMetrics,
       visionMs: vision.ms,
@@ -505,7 +536,9 @@ function renderScan() {
   const previewPayload = { ...state.payload, imageDataUrl: `<REDACTED_IMAGE_DATA:${Math.round(state.payload.imageDataUrl.length / 1024)}KB>` };
   $('#payload-json').textContent = JSON.stringify(previewPayload, null, 2);
   $('#scan-results').classList.remove('hidden');
-  $('#plan').disabled = !passed;
+  $('#plan').disabled = !passed || Boolean(state.settings?.localOnly);
+  $('#allow-server-context').disabled = !passed || Boolean(state.settings?.localOnly);
+  $('#allow-server-context').checked = false;
   $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden');
   $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden');
   $('#engine-badge').textContent = state.payload.clientMetrics.visionEngine;
@@ -519,13 +552,17 @@ function createLocalPlan(page) {
     && !element.value
     && placeholderByPurpose[element.purpose]
     && !['file', 'password', 'hidden', 'checkbox', 'radio'].includes(element.inputType)
-  )).map((element) => ({
-    type: 'TYPE_PLACEHOLDER', targetId: element.id, placeholder: placeholderByPurpose[element.purpose], highRisk: false
+  )).map((element, index) => ({
+    id: `a${index + 1}`, source: 'local', type: 'TYPE_PLACEHOLDER', targetId: element.id, placeholder: placeholderByPurpose[element.purpose],
+    risk: 'SAFE', reason: 'Fill an empty supported field.', highRisk: false,
+    preconditions: { role: element.role, enabled: true, visible: true, empty: true }
   }));
   const submit = (page.elements || []).find((element) => element.role === 'button' && element.enabled && element.risk === 'HIGH_RISK');
-  if (submit) actions.push({ type: 'CLICK', targetId: submit.id, highRisk: true });
-  if (!actions.length) actions.push({ type: 'ABORT', reason: 'No supported empty fields require a local action.', highRisk: false });
+  if (submit) actions.push({ id: `a${actions.length + 1}`, source: 'local', type: 'CLICK', targetId: submit.id, risk: 'HIGH_RISK', reason: 'Activate the validated synthetic completion control.', highRisk: true, preconditions: { role: submit.role, enabled: true, visible: true } });
+  if (!actions.length) actions.push({ id: 'a1', source: 'local', type: 'ABORT', reason: 'No supported empty fields require a local action.', risk: 'SAFE', highRisk: false });
+  if (!['FINISH', 'ABORT'].includes(actions.at(-1).type)) actions.push({ id: `a${actions.length + 1}`, source: 'local', type: 'FINISH', message: 'Validated actions are ready.', risk: 'SAFE', reason: 'Local planner reached a terminal state.', highRisk: false });
   return {
+    planVersion: '1.0',
     provider: 'local', model: 'deterministic-schema-v1',
     message: 'Privvy planned these actions locally from the sanitized UI graph. The local profile and placeholder mapping were not provided to the planner.',
     actions, submissionTargetId: submit?.id || null,
@@ -534,33 +571,42 @@ function createLocalPlan(page) {
 }
 
 async function scanPage() {
+  if (!['idle', 'scanned', 'ready', 'failed', 'blocked', 'completed'].includes(state.phase)) return;
+  const generation = ++state.generation;
+  setPhase('scanning');
   $('#scan').disabled = true; setBoundary('Inspecting locally', 'Reading the active tab and running the local visual pipeline. No server request is being made.', 'working');
   try {
     const response = await sendToTab({ type: 'PV_SCAN_PAGE' });
+    assertCurrentGeneration(generation);
     if (!response?.ok) throw new Error(response?.error || 'Page scan failed.');
     const capture = await promiseCall(api.runtime, 'sendMessage', {
       type: 'PV_CAPTURE_VISIBLE_TAB', tabId: state.tabId, windowId: state.windowId
     });
+    assertCurrentGeneration(generation);
     if (!capture?.ok) throw new Error(capture?.error || 'Visible-tab capture failed.');
     const [vision, ocr] = await Promise.all([
       localVisionModel(capture.dataUrl, response.data.viewport),
       localOcrModel(capture.dataUrl, response.data.viewport)
     ]);
+    assertCurrentGeneration(generation);
     const detections = mergeDetections(response.data.detections, [...vision.detections, ...ocr.detections]);
     const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
     const redacted = await drawRedactedPreview(capture.dataUrl, response.data, detections);
     state.scan = response.data; state.payload = buildPayload(response.data, redacted, vision, ocr, detections, rawTerms);
     state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = [];
+    state.approvalConsumed = false;
+    setPhase('scanned');
     renderScan();
     renderPlan(createLocalPlan(state.payload.page), 'local');
     await persistSession();
-  } catch (error) { setBoundary('Scan stopped', error.message, 'blocked'); }
+  } catch (error) { setPhase('failed'); setBoundary('Scan stopped', error.message, 'blocked'); }
   finally { $('#scan').disabled = false; }
 }
 
 function renderPlan(response, source) {
   const isServer = source === 'server';
   state[isServer ? 'serverPlan' : 'localPlan'] = response;
+  if (state.phase !== 'executing' && state.phase !== 'completed') setPhase('ready');
   $(`#${source}-provider`).textContent = `${response.provider} · ${response.model}`;
   $(`#${source}-planner-message`).textContent = response.message || 'The planner returned a schema-constrained plan from sanitized context.';
   $(`#${source}-action-list`).innerHTML = actionRows(response.actions || []);
@@ -574,20 +620,41 @@ function renderPlan(response, source) {
   setBoundary(isServer ? 'Server plan ready' : 'Local plan ready', `${response.actions.length} schema-constrained actions prepared by ${response.provider}.`, 'safe');
 }
 
+function validateClientPlan(plan) {
+  if (!plan || plan.planVersion !== '1.0' || !Array.isArray(plan.actions) || plan.actions.length > 20) throw new Error('The planner returned an unsupported action protocol.');
+  const ids = new Set(); const targets = new Set();
+  for (const action of plan.actions) {
+    if (!action || !['TYPE_PLACEHOLDER', 'CLICK', 'SCROLL', 'FINISH', 'ABORT'].includes(action.type)) throw new Error('The planner returned an unsupported action.');
+    if (!/^a\d+$/.test(action.id) || ids.has(action.id)) throw new Error('The planner returned duplicate action IDs.');
+    ids.add(action.id);
+    if (action.targetId && targets.has(action.targetId)) throw new Error('The planner returned duplicate target operations.');
+    if (action.targetId) targets.add(action.targetId);
+  }
+  if (!plan.actions.length || !['FINISH', 'ABORT'].includes(plan.actions.at(-1).type)) throw new Error('The planner returned no terminal action.');
+  return plan;
+}
+
 async function requestPlan() {
   if (!state.payload || state.payload.leakCheck.status !== 'passed') { setBoundary('Planning blocked', 'Run a successful local scan first.', 'blocked'); return; }
   if (state.executionSource) { setBoundary('Planning locked', 'Clear or rescan the page before requesting another plan after execution begins.', 'blocked'); return; }
+  if (state.settings?.localOnly) { setBoundary('Local-only mode', 'Server planning is disabled in settings. The deterministic local plan remains available.', 'idle'); return; }
+  if (!$('#allow-server-context').checked) { setBoundary('Approval required', 'Enable the per-scan approval to send sanitized context to the planner.', 'blocked'); return; }
+  if (!['scanned', 'ready'].includes(state.phase)) return;
+  const generation = currentGeneration();
+  setPhase('planning');
   $('#plan').disabled = true; state.requestStarted = performance.now(); setBoundary('Sending sanitized context', 'Only the redacted image, sanitized graph, metrics, and task are leaving the extension.', 'working');
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 30000);
   try {
-    const serverUrl = (await api.storage.local.get('pvSettings')).pvSettings?.serverUrl || 'http://127.0.0.1:8787';
+    const serverUrl = (await storageGet(api.storage.local, 'pvSettings')).pvSettings?.serverUrl || 'http://127.0.0.1:8787';
     const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state.payload), signal: controller.signal });
     const data = await response.json();
+    assertCurrentGeneration(generation);
     if (!response.ok) throw new Error(data.error || `Planner returned ${response.status}.`);
     data.metrics = { ...(data.metrics || {}), e2eMs: Math.round((performance.now() - state.requestStarted) * 10) / 10 };
-    renderPlan(data, 'server');
+    $('#allow-server-context').checked = false;
+    renderPlan(validateClientPlan(data), 'server');
     await persistSession();
-  } catch (error) { setBoundary('Server planning stopped', error.name === 'AbortError' ? 'The server did not respond within 30 seconds.' : error.message, 'blocked'); }
+  } catch (error) { setPhase('ready'); setBoundary('Server planning stopped', error.name === 'AbortError' ? 'The server did not respond within 30 seconds. The local plan remains available.' : `${error.message} The local plan remains available.`, 'blocked'); }
   finally { clearTimeout(timer); $('#plan').disabled = false; }
 }
 
@@ -611,7 +678,7 @@ function requestSubmissionApproval() {
 
 async function restoreSession() {
   let saved;
-  try { saved = (await sessionStore().get('pvActiveSession')).pvActiveSession; } catch { return false; }
+  try { saved = (await storageGet(sessionStore(), 'pvActiveSession')).pvActiveSession; } catch (error) { console.warn('Session restore unavailable:', error.message); return false; }
   if (!saved || saved.version !== SESSION_VERSION || !saved.scan || !saved.payload) return false;
   let tab;
   try { tab = await activeTab(); } catch { return false; }
@@ -626,6 +693,7 @@ async function restoreSession() {
   state.executionSource = saved.executionSource || null;
   state.pendingHighRisk = saved.pendingHighRisk || [];
   state.receipt = saved.receipt || [];
+  state.phase = state.pendingHighRisk.length ? 'executing' : (state.receipt.length ? 'completed' : 'ready');
   if (state.payload.task) $('#task').value = state.payload.task;
   renderScan();
   if (state.localPlan) renderPlan(state.localPlan, 'local');
@@ -638,7 +706,7 @@ async function restoreSession() {
 }
 
 async function execute(actions, allowHighRisk, appendReceipt = false) {
-  const response = await sendToTab({ type: 'PV_EXECUTE_ACTIONS', scanId: state.scan.scanId, expectedStateHash: state.scan.stateHash, actions, profile: state.profile, allowHighRisk });
+  const response = await sendToTab({ type: 'PV_EXECUTE_ACTIONS', planVersion: '1.0', scanId: state.scan.scanId, expectedStateHash: state.scan.stateHash, actions, profile: state.profile, allowHighRisk });
   if (!response?.ok) throw new Error(response?.error || 'Action execution failed.');
   state.scan.stateHash = response.data.nextStateHash;
   const combinedReceipt = appendReceipt ? [...state.receipt, ...response.data.receipt] : response.data.receipt;
@@ -649,7 +717,8 @@ async function execute(actions, allowHighRisk, appendReceipt = false) {
 
 async function executeSafeActions(source) {
   const plan = source === 'server' ? state.serverPlan : state.localPlan;
-  if (!plan || state.executionSource) return;
+  if (!plan || state.executionSource || !['ready', 'scanned'].includes(state.phase)) return;
+  setPhase('executing');
   state.executionSource = source;
   $('#execute-local').disabled = true; $('#execute-server').disabled = true; $('#plan').disabled = true;
   setBoundary('Validating actions locally', `Targets from the ${source} plan are being checked before execution.`, 'working');
@@ -663,10 +732,10 @@ async function executeSafeActions(source) {
     if (state.pendingHighRisk.length) {
       requestSubmissionApproval();
       setBoundary('Safe actions complete', `${executed} actions executed. Submission remains behind your approval.`, 'safe');
-    } else setBoundary('Task actions complete', `${executed} validated actions executed locally.`, 'safe');
+    } else { setPhase('completed'); setBoundary('Task actions complete', `${executed} validated actions executed locally.`, 'safe'); }
     await persistSession();
   } catch (error) {
-    state.executionSource = null;
+    state.executionSource = null; setPhase('failed');
     $('#execute-local').disabled = !state.localPlan;
     $('#execute-server').disabled = !state.serverPlan;
     $('#plan').disabled = false;
@@ -676,27 +745,33 @@ async function executeSafeActions(source) {
 
 async function declineSubmission() {
   state.pendingHighRisk = [];
+  setPhase('completed');
   $('#confirmation').classList.add('hidden');
   setBoundary('Submission not approved', 'Privvy left the synthetic form open. You may submit it manually or clear this session.', 'idle');
   await persistSession();
 }
 
 async function confirmSubmission() {
+  if (state.approvalConsumed || !state.pendingHighRisk.length || state.phase !== 'executing') return;
+  state.approvalConsumed = true;
   $('#confirm').disabled = true; setBoundary('Executing approved submission', 'The current target is being revalidated on the synthetic portal.', 'working');
   try {
     const receipt = await execute(state.pendingHighRisk, true, true);
     const success = receipt.some((item) => item.status === 'executed');
     if (!success) throw new Error(receipt[0]?.reason || 'Submission was not executed.');
-    $('#confirmation').classList.add('hidden'); state.pendingHighRisk = [];
+    $('#confirmation').classList.add('hidden'); state.pendingHighRisk = []; setPhase('completed');
     setBoundary('Synthetic task complete', 'Local values were restored and submission occurred only after approval. Raw profile values remained inside Privvy.', 'safe');
     await persistSession();
-  } catch (error) { setBoundary('Submission stopped', error.message, 'blocked'); }
+  } catch (error) { state.approvalConsumed = false; setPhase('failed'); setBoundary('Submission stopped', error.message, 'blocked'); }
   finally { $('#confirm').disabled = false; }
 }
 
 async function clearSession() {
-  try { if (state.tabId) await promiseCall(api.tabs, 'sendMessage', state.tabId, { type: 'PV_CLEAR_OVERLAY' }); } catch {}
-  state.scan = null; state.payload = null; state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = [];
+  try { if (state.tabId) await promiseCall(api.tabs, 'sendMessage', state.tabId, { type: 'PV_CLEAR_OVERLAY' }); } catch (error) {
+    // The tab may already be closed; local session cleanup still proceeds.
+    console.debug('Overlay cleanup skipped:', error.message);
+  }
+  state.generation += 1; setPhase('idle'); state.scan = null; state.payload = null; state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = []; state.approvalConsumed = false;
   await discardPersistedSession();
   $('#plan').disabled = true; $('#execute-local').disabled = true; $('#execute-server').disabled = true; $('#confirm').disabled = true;
   $('#scan-results').classList.add('hidden'); $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden'); $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden');
@@ -704,24 +779,39 @@ async function clearSession() {
 }
 
 async function loadSettings() {
-  const stored = await api.storage.local.get('pvSettings');
-  const versionState = await api.storage.local.get('pvProfileVersion');
-  const settings = { serverUrl: 'http://127.0.0.1:8787', ...defaultProfile, ...(stored.pvSettings || {}) };
+  const stored = await storageGet(api.storage.local, 'pvSettings');
+  const versionState = await storageGet(api.storage.local, 'pvProfileVersion');
+  const settings = { serverUrl: 'http://127.0.0.1:8787', localOnly: false, ...defaultProfile, ...(stored.pvSettings || {}) };
+  settings.localOnly = settings.localOnly === true || settings.localOnly === 'true' || settings.localOnly === 'on';
+  state.settings = { localOnly: settings.localOnly };
   if (!versionState.pvProfileVersion || settings.name === legacyProfile.name || settings.email === legacyProfile.email) {
     if (!settings.name || settings.name === legacyProfile.name) settings.name = defaultProfile.name;
     if (!settings.email || settings.email === legacyProfile.email) settings.email = defaultProfile.email;
-    await api.storage.local.set({ pvSettings: settings, pvProfileVersion: PROFILE_VERSION });
+    await storageSet(api.storage.local, { pvSettings: settings, pvProfileVersion: PROFILE_VERSION });
   }
-  state.profile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, settings[key] || defaultProfile[key]]));
+  state.profile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, settings[key] ?? '']));
   const form = $('#settings-form');
   Object.entries({ serverUrl: settings.serverUrl || 'http://127.0.0.1:8787', ...state.profile }).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value; });
+  form.elements.localOnly.checked = settings.localOnly;
 }
 
 async function saveSettings(event) {
   event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
-  await api.storage.local.set({ pvSettings: values, pvProfileVersion: PROFILE_VERSION });
-  state.profile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, String(values[key] || '')]));
+  values.localOnly = event.currentTarget.elements.localOnly.checked;
+  await storageSet(api.storage.local, { pvSettings: values, pvProfileVersion: PROFILE_VERSION });
+  state.settings = { localOnly: values.localOnly };
+  $('#allow-server-context').disabled = values.localOnly || !state.payload || state.payload.leakCheck.status !== 'passed';
+  state.profile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, String(values[key] ?? '')]));
   setBoundary('Settings saved locally', 'Profile values remain inside browser extension storage.', 'safe');
+}
+
+async function clearProfile() {
+  const emptyProfile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, '']));
+  const current = (await storageGet(api.storage.local, 'pvSettings')).pvSettings || {};
+  await storageSet(api.storage.local, { pvSettings: { ...current, serverUrl: current.serverUrl || 'http://127.0.0.1:8787', ...emptyProfile }, pvProfileVersion: PROFILE_VERSION });
+  state.profile = emptyProfile;
+  Object.entries(emptyProfile).forEach(([key, value]) => { if ($('#settings-form').elements[key]) $('#settings-form').elements[key].value = value; });
+  setBoundary('Profile cleared', 'Stored profile fields were removed. Future execution will remain blocked until you provide the needed values.', 'safe');
 }
 
 $('#scan').addEventListener('click', scanPage);
@@ -732,8 +822,12 @@ $('#confirm').addEventListener('click', confirmSubmission);
 $('#cancel-confirmation').addEventListener('click', declineSubmission);
 $('#clear').addEventListener('click', clearSession);
 $('#settings-form').addEventListener('submit', saveSettings);
+$('#clear-profile').addEventListener('click', clearProfile);
 loadSettings().then(async () => {
-  try { await sendToTab({ type: 'PV_HIDE_OVERLAY' }); } catch {}
+  try { await sendToTab({ type: 'PV_HIDE_OVERLAY' }); } catch (error) {
+    // The initial popup load may have no injectable tab yet.
+    console.debug('Initial overlay cleanup skipped:', error.message);
+  }
   await restoreSession();
   $('#scan').disabled = false;
   $('#clear').disabled = false;

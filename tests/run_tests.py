@@ -22,11 +22,12 @@ def load_server():
 def fixture_payload():
     return {
         "task": "Fill empty fields and prepare submission",
-        "imageDataUrl": "data:image/png;base64,iVBORw0KGgo=",
+        "imageDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         "leakCheck": {"status": "passed", "knownRawTermsInStructuredPayload": 0},
         "page": {
             "title": "Test",
             "urlClass": "127.0.0.1",
+            "viewport": [1024, 768],
             "elements": [
                 {"id": "e1", "role": "textbox", "enabled": True, "value": "", "purpose": "email", "inputType": "email", "label": "Email", "risk": "EMAIL"},
                 {"id": "e2", "role": "textbox", "enabled": True, "value": "<USER_INPUT_1>", "purpose": "name", "inputType": "text", "label": "Full name", "risk": "PERSON"},
@@ -85,9 +86,9 @@ def main():
     assert '"--prefix"' in ocr_setup and '"--no-package-lock"' in ocr_setup
     assert "shell=True" not in yolo_setup and '"--prefix"' in yolo_setup
     assert "localPlan" in popup_js and "serverPlan" in popup_js and "executionSource" in popup_js
-    assert "renderPlan(data, 'server')" in popup_js and "renderPlan(createLocalPlan(state.payload.page), 'local')" in popup_js
+    assert "renderPlan(validateClientPlan(data), 'server')" in popup_js and "renderPlan(createLocalPlan(state.payload.page), 'local')" in popup_js
     assert "execute-local" in popup_js and "execute-server" in popup_js
-    assert "if (submit) actions.push({ type: 'CLICK'" in popup_js
+    assert "const submit = (page.elements || []).find" in popup_js and "type: 'CLICK', targetId: submit.id" in popup_js and "highRisk: true" in popup_js
     assert "await execute(plan.actions, false)" in popup_js and "requestSubmissionApproval" in popup_js
     assert "Decline submission" in (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
     assert "pvActiveSession" in popup_js and "storage.session" in popup_js
@@ -118,7 +119,7 @@ def main():
     firefox_manifest = json.loads((ROOT / "extension" / "manifest.firefox.json").read_text(encoding="utf-8"))
     assert chrome_manifest.get("side_panel", {}).get("default_path") == "popup.html"
     chrome_resources = chrome_manifest.get("web_accessible_resources", [{}])[0].get("resources", [])
-    assert "tesseract-worker.min.js" in chrome_resources and "eng.traineddata.gz" in chrome_resources
+    assert "tesseract.worker.min.js" in chrome_resources and "eng.traineddata.gz" in chrome_resources
     assert "<all_urls>" not in chrome_manifest.get("host_permissions", [])
     assert "<all_urls>" not in firefox_manifest.get("host_permissions", [])
     assert "http://127.0.0.1/*" in chrome_manifest.get("host_permissions", [])

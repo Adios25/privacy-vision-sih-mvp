@@ -1,21 +1,10 @@
-const api = globalThis.browser || globalThis.chrome;
+importScripts('browser_api.js');
+const { api, call: apiCall } = globalThis.PrivvyBrowserApi;
 const pendingCaptures = new Map();
 const CAPTURE_TTL_MS = 60_000;
 
 function captureVisibleTab(windowId) {
-  try {
-    const result = api.tabs.captureVisibleTab(windowId, { format: 'png' });
-    if (result && typeof result.then === 'function') return result;
-  } catch (error) {
-    return Promise.reject(error);
-  }
-  return new Promise((resolve, reject) => {
-    api.tabs.captureVisibleTab(windowId, { format: 'png' }, (dataUrl) => {
-      const error = api.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(dataUrl);
-    });
-  });
+  return apiCall(api.tabs, 'captureVisibleTab', windowId, { format: 'png' });
 }
 
 function captureKey(windowId) {
@@ -31,7 +20,7 @@ async function takeCachedCapture(message) {
     return null;
   }
   pendingCaptures.delete(key);
-  try { return await cached.promise; } catch { return null; }
+  try { return await cached.promise; } catch (error) { console.warn('Cached capture failed:', error.message); return null; }
 }
 
 // Chrome side panels do not reliably retain the action's activeTab grant when
@@ -39,7 +28,7 @@ async function takeCachedCapture(message) {
 // toolbar click, while the grant is definitely active, then open the panel.
 if (api.sidePanel && api.action?.onClicked) {
   const behavior = api.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
-  behavior?.catch?.(() => {});
+  behavior?.catch?.((error) => console.warn('Side panel behavior setup failed:', error.message));
 
   api.action.onClicked.addListener((tab) => {
     if (!tab?.id || tab.windowId == null) return;
@@ -60,7 +49,7 @@ if (api.sidePanel && api.action?.onClicked) {
     // Start opening synchronously inside the click handler so Chrome recognizes
     // it as a user gesture; do not wait for screenshot encoding first.
     const opened = api.sidePanel.open({ windowId: tab.windowId });
-    opened?.catch?.(() => {});
+    opened?.catch?.((error) => console.warn('Side panel open failed:', error.message));
   });
 }
 

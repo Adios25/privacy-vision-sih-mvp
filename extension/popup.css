@@ -46,6 +46,8 @@ section, details.settings { border: 1px solid var(--border); border-radius: 12px
 .boundary p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .control-section, #scan-results, .plan-panel, #execution-results { padding: 13px; }
 label { display: grid; gap: 6px; color: var(--ink); font-size: 11px; font-weight: 750; }
+.check-row { display: flex; grid-column: 1 / -1; align-items: center; gap: 8px; font-size: 10px; font-weight: 650; }
+.check-row input { width: 15px; height: 15px; margin: 0; padding: 0; accent-color: #087a55; }
 textarea, input { width: 100%; border: 1px solid var(--border); border-radius: 7px; background: white; color: var(--ink); padding: 9px 10px; font-size: 11px; }
 textarea { resize: none; }
 textarea:focus, input:focus { border-color: #159d75; box-shadow: 0 0 0 3px rgba(66,230,177,.18); outline: none; }

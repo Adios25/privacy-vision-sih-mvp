@@ -1,4 +1,4 @@
-# Privvy (v1.3.3) — Privacy-Preserving Visual Web Agent MVP
+# Privvy (v1.3.4) — Privacy-Preserving Visual Web Agent MVP
 
 > **An institutional-grade, privacy-first browser extension and autonomous agent platform that inspects, redacts, sanitizes, plans, and executes web actions locally without leaking raw PII or unmasked visual data to external servers or AI models.**
 
@@ -14,12 +14,12 @@ Modern Vision-Language Models (VLMs) and browser automation agents offer immense
 
 ### The Privvy Solution
 
-**Privvy** (v1.3.3) introduces an **in-browser privacy boundary** that runs between the user's browser tab and any AI reasoning backend (local or cloud):
+**Privvy** (v1.3.4) introduces an **in-browser privacy boundary** that runs between the user's browser tab and any AI reasoning backend (local or cloud):
 
 1. **Local-First Detection & Masking:** Identifies text patterns, form semantics, and visual regions locally inside the browser.
 2. **Zero Raw PII Egress:** Replaces sensitive values with typed tokens (`<USER_NAME>`, `<USER_EMAIL>`, `<USER_INPUT_1>`) and applies solid, opaque bounding-box masks to screenshots.
 3. **Structured Payload & Outbound Leak Guard:** Verifies that no known raw terms exist in the structured JSON payload before any data leaves the extension.
-4. **Dual Plan Architecture (v1.3.3):** Generates an offline deterministic local plan immediately upon scan, while offering an optional server/VLM plan. Users can independently inspect and choose **"Execute local plan"** or **"Execute server plan"**.
+4. **Dual Plan Architecture (v1.3.4):** Generates an offline deterministic local plan immediately upon scan, while offering an optional server/VLM plan. Users can independently inspect and choose **"Execute local plan"** or **"Execute server plan"**.
 5. **Local Profile Resolution:** Real user data resides strictly in browser-local extension storage. Token resolution occurs strictly on-device inside the DOM.
 6. **Human-in-the-Loop Safety:** Critical high-risk actions (such as submissions) require explicit, separate user approval with **Confirm** and **Decline** controls.
 
@@ -34,7 +34,7 @@ Privvy is architected into three independently functioning, decoupled components
 │                                   BROWSER WORKSPACE                                    │
 │                                                                                        │
 │  ┌────────────────────────┐                   ┌─────────────────────────────────────┐  │
-│  │   Active Web Tab       │                   │       Privvy Extension (v1.3.3)     │  │
+│  │   Active Web Tab       │                   │       Privvy Extension (v1.3.4)     │  │
 │  │  (Synthetic Portal     │                   │                                     │  │
 │  │   or Real Website)     │                   │  ┌───────────────────────────────┐  │  │
 │  │                        │                   │  │ Background Service Worker     │  │  │
@@ -84,14 +84,28 @@ Privvy is architected into three independently functioning, decoupled components
 
 ## 🔑 Key Features & Privacy Invariants
 
+### Security invariants
+
+The normative privacy and safety behavior is defined in [UX-CONTRACT.md](UX-CONTRACT.md). The boundary map below summarizes the data allowed at each layer:
+
+| Boundary | Allowed data | Never allowed |
+|---|---|---|
+| Content script | Local DOM structure, typed placeholders, detection metadata, ephemeral raw terms | Network transmission of raw values, raw OCR text, profile values, or placeholder mappings |
+| Popup and extension storage | Sanitized graph, redacted image, plans, receipts, and user-managed profile values only at execution time | Raw detected terms, unredacted captures, or profile values in session snapshots |
+| Server request | Sanitized graph, redacted image, category counts, metrics, state hash, and task | Raw page text, raw form values, raw OCR text, profile values, or placeholder mappings |
+| Model request | Server-approved sanitized context only | Any raw value or unredacted image |
+| Metrics and logs | Counts, timings, provider mode, status, and correlation metadata | Request bodies, secrets, raw values, or sensitive field contents |
+
+Any outbound payload must pass the client leak check and server validation before planning. High-risk actions remain approval-gated even when the local or remote planner is unavailable.
+
 | Feature | How Privvy Implements It | Privacy / Safety Guarantee |
 |---|---|---|
 | **Local Text & Pattern Detection** | Regex patterns (`EMAIL`, `PHONE`, `AADHAAR`, `PAN`, `PASSPORT`, `CARD`, `IP`) + DOM semantic traversal (`data-field-purpose`, `<label>`, `autocomplete`, `<dt>/<dd>`). | Raw terms are indexed locally into an ephemeral `Set` and never transmitted across the network. |
 | **Visual Element & Face Classifier** | Local WebGPU ONNX Runtime Web inference (`VisualDetector` using YOLO11n) with automatic fallback to WebAssembly (WASM). | Detects facial regions and portraits directly on-device. Redaction masks original pixels completely. |
 | **Solid Bounding-Box Redaction** | Bounding boxes are stamped with `#071A18` solid fills and tagged with token badges (`<FACE>`, `<EMAIL_1>`). | No translucent blur or reversible mosaic filtering. Zero raw image pixels leave the browser. |
-| **Prefill Preservation (v1.3.3)** | Evaluated via portal presets (`One typed`, `Two typed`, `Many typed`). Assigns `<USER_INPUT_n>` placeholders to existing content. | Agent strictly preserves existing values and only fills empty target controls. |
+| **Prefill Preservation (v1.3.4)** | Evaluated via portal presets (`One typed`, `Two typed`, `Many typed`). Assigns `<USER_INPUT_n>` placeholders to existing content. | Agent strictly preserves existing values and only fills empty target controls. |
 | **Client-Side Outbound Leak Check** | Serializes the complete request JSON and performs substring search against all locally detected raw terms. | If a single raw term appears in the structured graph, network planning is immediately blocked (`status: 'blocked'`). |
-| **Dual Plan Execution (v1.3.3)** | Separate action tracks for local deterministic baseline vs. remote VLM plans (`Execute local plan` / `Execute server plan`). | Users can compare plans side-by-side and choose which execution path to trigger. |
+| **Dual Plan Execution (v1.3.4)** | Separate action tracks for local deterministic baseline vs. remote VLM plans (`Execute local plan` / `Execute server plan`). | Users can compare plans side-by-side and choose which execution path to trigger. |
 | **Local Profile Resolution** | User profiles are stored in `chrome.storage.local`. The server plan outputs token placeholders (e.g. `<USER_NAME>`). | Actual identity values (`Soumil Bhosle`, etc.) are resolved and injected locally by the extension runtime. |
 | **Human-in-the-Loop Submissions** | Actions classified as `HIGH_RISK` (submit, complete, pay) are separated into a pending queue with **Confirm** and **Decline** actions. | Explicit user consent is mandatory prior to submitting synthetic forms. |
 | **Safe Test Isolation** | High-risk automated submissions check `isSyntheticSafeTest()` and local origins (`127.0.0.1`, `localhost`, `0.0.0.0`). | Prevents unexpected form submissions on external, non-test websites. |
@@ -102,14 +116,14 @@ Privvy is architected into three independently functioning, decoupled components
 
 ```
 privacy-vision-sih-mvp/
-├── README.md                      # Comprehensive documentation & setup guide (v1.3.3)
+├── README.md                      # Comprehensive documentation & setup guide (v1.3.4)
 ├── DESIGN.md                      # Design system tokens, color palettes & UX principles
 ├── UX-CONTRACT.md                 # Formal privacy invariants, form ownership & behaviors
 ├── .gitignore                     # Git exclusions for Python/macOS/editors
 │
-├── extension/                     # Extension source files (v1.3.3)
-│   ├── manifest.json              # Chrome Manifest V3 (Side panel, activeTab, v1.3.3)
-│   ├── manifest.firefox.json      # Firefox Manifest V3 (Toolbar action popup, v1.3.3)
+├── extension/                     # Extension source files (v1.3.4)
+│   ├── manifest.json              # Chrome Manifest V3 (Side panel, activeTab, v1.3.4)
+│   ├── manifest.firefox.json      # Firefox Manifest V3 (Toolbar action popup, v1.3.4)
 │   ├── background.js              # Service worker (Ephemeral memory-only screenshot capture)
 │   ├── content.js                 # Content script (DOM walker, pattern sanitizer, executor)
 │   ├── popup.html                 # Extension side-panel / popup UI markup
@@ -118,7 +132,8 @@ privacy-vision-sih-mvp/
 │   └── ocr.js                     # Local OCR PII extraction and bounding-box mapping
 │
 ├── server/                        # Backend planner & test portal server
-│   └── server.py                  # Zero-dependency Python server (HTTP, Ollama/OpenAI VLM, metrics)
+│   ├── server.py                  # Zero-dependency Python server (HTTP, Ollama/OpenAI VLM, metrics)
+│   └── CONFIGURATION.md           # Limits, provider settings, and production guidance
 │
 ├── test-website/                  # Standalone synthetic institutional test portal
 │   ├── index.html                 # Accessible case dossier & multi-scenario form UI
@@ -306,8 +321,11 @@ The server provides built-in REST endpoints for telemetry and auditing:
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/health` | `GET` | Returns server health, active model provider, and privacy status. |
+| `/api/ready` | `GET` | Reports provider configuration readiness without calling the model. |
 | `/api/plan` | `POST` | Receives sanitized graph & redacted screenshot; returns validated actions. |
 | `/api/metrics` | `GET` | Aggregated non-PII performance metrics (average server time, model latency, request sizes). |
+
+Server hardening is controlled through environment variables. Development mode defaults to loopback origins and extension origins; production mode requires an explicit `PV_ALLOWED_ORIGINS` list and `PV_AUTH_TOKEN` bearer token. `PV_MAX_BODY_BYTES`, `PV_MAX_IMAGE_BYTES`, `PV_MAX_IMAGE_WIDTH`, `PV_MAX_IMAGE_HEIGHT`, `PV_MAX_IMAGE_PIXELS`, `PV_MAX_CONCURRENT_REQUESTS`, `PV_RATE_LIMIT_COUNT`, `PV_RATE_LIMIT_WINDOW`, and `PV_REQUEST_TIMEOUT` bound resource use. Request bodies, API keys, and field values are never logged.
 
 Example health check:
 ```bash
@@ -332,8 +350,9 @@ Privvy comes with a comprehensive automated test suite verifying:
 - Value preservation invariants (prefilled and user-typed fields).
 - Immediate blocking of leaked payloads.
 - Strict host permission boundaries and security policies.
-- Version matching across manifests and scripts (`v1.3.3`).
+- Version matching across manifests and scripts (`v1.3.4`).
 - Syntax and script validity across all extension and portal files.
+- CI runs JavaScript tests, packaging checks, Python tests, and the local heuristic server smoke test without external API keys.
 
 Run the test suite:
 ```bash
