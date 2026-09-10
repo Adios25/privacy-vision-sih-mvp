@@ -11,12 +11,12 @@
   ];
 
   const LABEL_VALUE_PATTERNS = [
-    { category: 'PERSON', regex: /\b(?:full\s+name|applicant\s+name|patient\s+name|name)\s*[:\-]\s*(.{2,80})$/i },
-    { category: 'ADDRESS', regex: /\b(?:postal\s+address|residential\s+address|address)\s*[:\-]\s*(.{4,160})$/i },
-    { category: 'DOB', regex: /\b(?:date\s+of\s+birth|birth\s+date|dob)\s*[:\-]\s*(.{4,40})$/i },
-    { category: 'PASSPORT', regex: /\b(?:passport(?:\s+number|\s+no\.?)?)\s*[:\-]\s*(.{2,40})$/i },
-    { category: 'CARD_LIKE', regex: /\b(?:card(?:\s+number|\s+no\.?)?|credit\s+card|debit\s+card)\s*[:\-]\s*(.{4,40})$/i },
-    { category: 'AADHAAR_LIKE', regex: /\b(?:aadhaar|aadhar)(?:\s+number|\s+no\.?)?\s*[:\-]\s*(.{4,40})$/i }
+    { category: 'PERSON', regex: /\b(?:full\s+name|applicant\s+name|patient\s+name|name)(?:\s*:\s*|\s+-\s+)(.{2,80})$/i },
+    { category: 'ADDRESS', regex: /\b(?:postal\s+address|residential\s+address|address)(?:\s*:\s*|\s+-\s+)(.{4,160})$/i },
+    { category: 'DOB', regex: /\b(?:date\s+of\s+birth|birth\s+date|dob)(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
+    { category: 'PASSPORT', regex: /\b(?:passport(?:\s+number|\s+no\.?)?)(?:\s*:\s*|\s+-\s+)(.{2,40})$/i },
+    { category: 'CARD_LIKE', regex: /\b(?:card(?:\s+number|\s+no\.?)?|credit\s+card|debit\s+card)(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
+    { category: 'AADHAAR_LIKE', regex: /\b(?:aadhaar|aadhar)(?:\s+number|\s+no\.?)?(?:\s*:\s*|\s+-\s+)(.{4,40})$/i }
   ];
 
   function validPaymentCard(value) {

@@ -20,8 +20,13 @@
     </section>
 
     <section class="control-section">
-      <label for="task">Assistance task</label>
+      <label for="task">What should Privvy help you do?</label>
       <textarea id="task" class="resize-none" rows="2">Fill supported empty fields, preserve existing values, and prepare the form for submission.</textarea>
+      <div class="task-presets" aria-label="Assistance task presets">
+        <button type="button" class="task-preset" data-task="Prepare this application without changing existing values.">Prepare application</button>
+        <button type="button" class="task-preset" data-task="Review the visible page and identify the next safe action.">Find next action</button>
+        <button type="button" class="task-preset" data-task="Complete supported empty fields while preserving existing values.">Complete empty fields</button>
+      </div>
       <div class="action-row">
         <button id="scan" class="primary" type="button" disabled>1. Scan current page</button>
         <button id="clear" class="ghost" type="button" disabled>Clear</button>
@@ -29,6 +34,16 @@
     </section>
 
     <section id="scan-results" class="hidden">
+      <section class="privacy-gate" aria-labelledby="privacy-gate-title">
+        <div class="section-heading"><div><small>Local-only enforcement</small><h2 id="privacy-gate-title">Privacy Gate</h2></div><strong id="privacy-gate-status" class="gate-status">Scanning</strong></div>
+        <div class="privacy-steps">
+          <span id="gate-screen">1. Screen analyzed locally</span>
+          <span id="gate-mask">2. Sensitive regions masked</span>
+          <span id="gate-payload">3. Payload sanitized</span>
+          <span id="gate-egress">4. Egress check passed</span>
+        </div>
+        <p id="privacy-gate-copy">No original screenshot or raw page value is eligible to leave the browser.</p>
+      </section>
       <div class="section-heading"><div><small>Local processing</small><h2>Redaction ledger</h2></div><strong id="detection-total" class="metric-number">0</strong></div>
       <div id="category-list" class="category-list"></div>
       <div class="proof-row"><span>Known-value leak check</span><strong id="leak-status">Pending</strong></div>
@@ -37,7 +52,19 @@
         <div class="review-counters"><span>Auto-detected Masks: <b id="auto-mask-count">0</b></span><span>User-added Masks: <b id="manual-mask-count">0</b></span><span>Disabled Masks: <b id="disabled-mask-count">0</b></span></div>
         <div class="action-row"><button id="toggle-overlay" class="ghost" type="button" disabled>Toggle Interactive Overlay</button><button id="approve-redactions" class="primary" type="button" disabled>Confirm &amp; Generate Plan</button></div>
       </section>
-      <canvas id="preview" aria-label="Locally redacted screenshot preview"></canvas>
+      <div class="audit-panel" aria-label="Local egress audit">
+        <div class="debug-title">Local Egress Audit</div>
+        <div class="debug-row"><span>Active masks:</span><strong id="audit-active-masks">—</strong></div>
+        <div class="debug-row"><span>Disabled masks:</span><strong id="audit-disabled-masks">—</strong></div>
+        <div class="debug-row"><span>QR/barcode masks:</span><strong id="audit-qr-masks">—</strong></div>
+        <div class="debug-row"><span>Shadow DOM detections:</span><strong id="audit-shadow-masks">—</strong></div>
+        <div class="debug-row"><span>Structured matches:</span><strong id="audit-structured-matches">—</strong></div>
+        <div class="debug-row"><span>Payload hash:</span><strong id="audit-payload-hash">—</strong></div>
+      </div>
+      <div class="preview-compare" aria-label="Local screenshot comparison">
+        <figure><figcaption>Original screen <small>Local only</small></figcaption><canvas id="original-preview" aria-label="Original screenshot retained locally"></canvas></figure>
+        <figure><figcaption>Sanitized screen <small>Eligible for planning</small></figcaption><canvas id="preview" aria-label="Locally redacted screenshot preview"></canvas></figure>
+      </div>
       <div class="metric-grid">
         <span><small>DOM scan</small><strong id="scan-ms">—</strong></span>
         <span><small>Vision</small><strong id="vision-ms">—</strong></span>
@@ -61,19 +88,19 @@
         <div class="debug-row"><span>Recognition:</span><strong id="ocr-latency">—</strong></div>
         <div class="debug-row"><span>Sensitive regions:</span><strong id="ocr-detections">—</strong></div>
       </div>
-      <label class="check-row"><input id="allow-server-context" type="checkbox" disabled> Allow this scan to send sanitized context to the planner</label>
-      <button id="plan" class="ghost wide-button" type="button" disabled>Optional: ask server-side VLM</button>
+      <label class="check-row"><input id="allow-server-context" type="checkbox" disabled> I understand that only sanitized context can be sent to the planner</label>
+      <button id="plan" class="ghost wide-button" type="button" disabled>Optional: request server-side reasoning</button>
     </section>
 
     <section id="local-plan-results" class="plan-panel hidden" data-plan-source="local">
-      <div class="section-heading"><div><small>Offline baseline</small><h2>Local action plan</h2></div><span id="local-provider" class="engine-badge"></span></div>
+      <div class="section-heading"><div><small>Offline fallback · no network required</small><h2>Offline Action Plan</h2></div><span id="local-provider" class="engine-badge"></span></div>
       <p id="local-planner-message" class="section-copy"></p>
       <div id="local-action-list" class="action-list"></div>
       <button id="execute-local" class="primary wide-button" type="button" disabled>2A. Execute local safe actions</button>
     </section>
 
     <section id="server-plan-results" class="plan-panel server-plan hidden" data-plan-source="server">
-      <div class="section-heading"><div><small>Server-side VLM or labelled fallback</small><h2>Validated server action plan</h2></div><span id="server-provider" class="engine-badge"></span></div>
+      <div class="section-heading"><div><small>Optional sanitized context only</small><h2>Server Action Plan</h2></div><span id="server-provider" class="engine-badge"></span></div>
       <p id="server-planner-message" class="section-copy"></p>
       <div id="server-action-list" class="action-list"></div>
       <div class="metric-grid three">
@@ -121,6 +148,9 @@
   <script src="ocr.js"></script>
   <script src="geometry.js"></script>
   <script src="redactionMerger.js"></script>
+  <script src="indiaPiiValidator.js"></script>
+  <script src="shadowWalker.js"></script>
+  <script src="qrDetector.js"></script>
   <script src="browser_api.js"></script>
   <script src="popup.js"></script>
 </body>

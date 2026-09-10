@@ -51,6 +51,21 @@
         <p class="panel-copy">Existing values held by the selected service. Review them before completing the application.</p>
         <dl id="record-list" class="record-list"></dl>
         <div id="visual-asset" class="visual-asset" hidden></div>
+        <section class="privacy-fixtures" aria-labelledby="fixtures-title">
+          <p class="section-label" id="fixtures-title">Local privacy lab fixtures</p>
+          <p class="fixture-copy">Synthetic visual and Web Component data for testing local redaction. Nothing here is real.</p>
+          <div class="fixture-grid">
+            <div class="fixture-card">
+              <div class="fake-qr" role="img" aria-label="Synthetic QR code containing dummy test data" data-visual-purpose="qr-code"></div>
+              <strong>QR code</strong><small>Semantic QR fixture</small>
+            </div>
+            <div class="fixture-card">
+              <div class="fake-barcode" role="img" aria-label="Synthetic barcode containing dummy test data" data-visual-purpose="barcode"></div>
+              <strong>Barcode</strong><small>Semantic barcode fixture</small>
+            </div>
+          </div>
+          <privacy-shadow-fixture></privacy-shadow-fixture>
+        </section>
         <div class="untrusted-note">
           <strong>Page notice</strong>
           <p id="untrusted-message"></p>

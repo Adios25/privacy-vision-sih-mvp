@@ -6,7 +6,7 @@
   "scripts": {
     "check:version": "node scripts/check_version.mjs",
     "build": "node scripts/check_version.mjs && node scripts/package_extensions.mjs && node scripts/check_version.mjs --artifacts",
-    "test": "node tests/yolo_tests.js && node tests/manual_redaction_tests.js && node tests/static_checks.mjs"
+    "test": "node tests/yolo_tests.js && node tests/manual_redaction_tests.js && node tests/advanced_redaction_tests.js && node tests/static_checks.mjs"
   },
   "dependencies": {
     "onnxruntime-web": "1.20.0"

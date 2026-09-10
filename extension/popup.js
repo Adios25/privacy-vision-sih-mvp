@@ -85,18 +85,42 @@ async function activeTab() {
   return tab;
 }
 
+function invalidateScanForTabChange(reason) {
+  if (state.phase !== 'scanning' || state.tabId === null) return;
+  state.generation += 1;
+  state.scan = null;
+  state.payload = null;
+  state.captureDataUrl = null;
+  state.redactionState = null;
+  state.redactionsApproved = false;
+  setPhase('blocked');
+  $('#scan').disabled = false;
+  setBoundary('Scan stopped', `${reason} Privvy discarded the in-progress result. Scan the active tab again.`, 'blocked');
+}
+
+if (api.tabs.onActivated?.addListener) {
+  api.tabs.onActivated.addListener((activeInfo) => {
+    if (activeInfo?.tabId !== state.tabId) invalidateScanForTabChange('The active tab changed while scanning.');
+  });
+}
+if (api.tabs.onUpdated?.addListener) {
+  api.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (tabId === state.tabId && changeInfo.status === 'loading') invalidateScanForTabChange('The scanned page started navigating.');
+  });
+}
+
 async function ensureContentScript(tabId) {
   try {
     const response = await promiseCall(api.tabs, 'sendMessage', tabId, { type: 'PV_PING' });
     if (response?.contentVersion === CONTENT_VERSION) {
-      await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['redactionMerger.js', 'overlayCanvas.js'] });
+      await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['redactionMerger.js', 'indiaPiiValidator.js', 'shadowWalker.js', 'overlayCanvas.js'] });
       return;
     }
   } catch (error) {
     // A missing content script is the expected recovery path before injection.
     console.debug('Content script ping failed; injecting it:', error.message);
   }
-  await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['redactionMerger.js', 'overlayCanvas.js', 'content.js'] });
+  await promiseCall(api.scripting, 'executeScript', { target: { tabId }, files: ['redactionMerger.js', 'indiaPiiValidator.js', 'shadowWalker.js', 'overlayCanvas.js', 'content.js'] });
 }
 
 async function sendToTab(message) {
@@ -464,6 +488,9 @@ async function localOcrModel(dataUrl, viewport) {
 async function drawRedactedPreview(dataUrl, scan, detections) {
   const image = await createImageBitmap(await (await fetch(dataUrl)).blob());
   const canvas = $('#preview'); const ratio = Math.min(1, 780 / image.width);
+  const originalCanvas = $('#original-preview');
+  originalCanvas.width = Math.round(image.width * ratio); originalCanvas.height = Math.round(image.height * ratio);
+  originalCanvas.getContext('2d').drawImage(image, 0, 0, originalCanvas.width, originalCanvas.height);
   canvas.width = Math.round(image.width * ratio); canvas.height = Math.round(image.height * ratio);
   const context = canvas.getContext('2d'); context.drawImage(image, 0, 0, canvas.width, canvas.height);
   const imageSize = { width: image.width, height: image.height };
@@ -480,7 +507,7 @@ async function drawRedactedPreview(dataUrl, scan, detections) {
   return canvas.toDataURL('image/jpeg', .78);
 }
 
-function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, redactionState) {
+function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, redactionState, qr = null) {
   const stableDetections = [...detections].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.category.localeCompare(b.category));
   const categoryCounts = stableDetections.reduce((summary, item) => { summary[item.category] = (summary[item.category] || 0) + 1; return summary; }, {});
   const payload = {
@@ -497,7 +524,10 @@ function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, re
       webGpuAvailable: Boolean(navigator.gpu),
       ocrMs: ocr.ms,
       ocrEngine: ocr.engine,
-      ocrSensitiveRegions: ocr.detections.length
+      ocrSensitiveRegions: ocr.detections.length,
+      qrMs: qr?.ms || 0,
+      qrEngine: qr?.engine || 'unavailable',
+      qrDetections: stableDetections.filter((item) => item.type === 'QR').length
     },
     leakCheck: { status: 'pending', knownRawTermsInStructuredPayload: 0 }
   };
@@ -518,6 +548,41 @@ function renderRedactionReview() {
   $('#approve-redactions').disabled = !state.scan;
 }
 
+async function updatePayloadAudit(payload) {
+  const source = JSON.stringify({ ...payload, audit: undefined });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const masks = [...(state.redactionState?.autoDetections || []), ...(state.redactionState?.manualDetections || [])];
+  payload.audit = { activeMasks: masks.filter((item) => item.active).length, disabledMasks: masks.filter((item) => !item.active).length, qrMasks: masks.filter((item) => item.type === 'QR' && item.active).length, shadowDomDetections: [...(payload.page.textBlocks || []), ...(payload.page.elements || [])].filter((item) => item.shadowRoot).length, structuredPayloadMatches: payload.leakCheck.knownRawTermsInStructuredPayload, payloadHash: `sha256-${hash}` };
+  return payload;
+}
+
+function renderAudit() {
+  const audit = state.payload?.audit; if (!audit) return;
+  $('#audit-active-masks').textContent = String(audit.activeMasks);
+  $('#audit-disabled-masks').textContent = String(audit.disabledMasks);
+  $('#audit-qr-masks').textContent = String(audit.qrMasks);
+  $('#audit-shadow-masks').textContent = String(audit.shadowDomDetections);
+  $('#audit-structured-matches').textContent = String(audit.structuredPayloadMatches);
+  $('#audit-payload-hash').textContent = audit.payloadHash;
+}
+
+function renderPrivacyGate() {
+  const passed = state.payload?.leakCheck?.status === 'passed';
+  const reviewed = Boolean(state.redactionsApproved);
+  const steps = [
+    ['#gate-screen', '1. Screen analyzed locally', 'passed'],
+    ['#gate-mask', '2. Sensitive regions masked', 'passed'],
+    ['#gate-payload', '3. Payload sanitized', passed ? 'passed' : 'blocked'],
+    ['#gate-egress', passed ? '4. Egress check passed' : '4. Egress check blocked', passed ? 'passed' : 'blocked']
+  ];
+  for (const [selector, label, status] of steps) { const step = $(selector); step.textContent = label; step.dataset.state = status; }
+  $('#privacy-gate-status').textContent = passed ? (reviewed ? 'Ready to plan' : 'Review required') : 'Transmission blocked';
+  $('#privacy-gate-copy').textContent = passed
+    ? (reviewed ? 'The approved redaction set protects the image and structural payload before planning.' : 'Review the active masks before planning. No original screenshot or raw page value is eligible to leave the browser.')
+    : 'A known raw value is still present in the structured payload, so server planning is blocked.';
+}
+
 async function rebuildAfterReview(approved = false) {
   if (!state.scan || !state.captureDataUrl) return;
   state.redactionState = PrivvyRedaction.mergeRedactionState(state.redactionState);
@@ -526,7 +591,7 @@ async function rebuildAfterReview(approved = false) {
   const metrics = state.payload?.clientMetrics || {};
   state.payload = buildPayload(state.scan, redacted, { ms: metrics.visionMs || 0, engine: metrics.visionEngine || 'local' }, { ms: metrics.ocrMs || 0, engine: metrics.ocrEngine || 'local', detections: [] }, activeMasks, state.rawTerms || [], state.redactionState);
   state.redactionsApproved = approved || state.redactionsApproved;
-  renderScan(); renderRedactionReview();
+  await updatePayloadAudit(state.payload); renderScan(); renderRedactionReview(); renderAudit();
   renderPlan(createLocalPlan(state.payload.page), 'local');
   await persistSession();
 }
@@ -563,6 +628,7 @@ function renderScan() {
   $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden');
   $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden');
   $('#engine-badge').textContent = state.payload.clientMetrics.visionEngine;
+  renderPrivacyGate();
   setBoundary(passed ? 'Safe context ready' : 'Network planning blocked', passed ? 'Known raw page values are absent from the structured payload; review it before transmission.' : 'A locally detected raw value remains. Nothing will be sent.', passed ? 'safe' : 'blocked');
 }
 
@@ -585,7 +651,7 @@ function createLocalPlan(page) {
   return {
     planVersion: '1.0',
     provider: 'local', model: 'deterministic-schema-v1',
-    message: 'Privvy planned these actions locally from the sanitized UI graph. The local profile and placeholder mapping were not provided to the planner.',
+    message: 'This offline plan was generated entirely from the sanitized UI graph. No network request, raw page value, or local profile was provided to the planner.',
     actions, submissionTargetId: submit?.id || null,
     metrics: { serverMs: 0, modelMs: 0 }
   };
@@ -605,26 +671,31 @@ async function scanPage() {
     });
     assertCurrentGeneration(generation);
     if (!capture?.ok) throw new Error(capture?.error || 'Visible-tab capture failed.');
-    const [vision, ocr] = await Promise.all([
+    const [vision, ocr, qr] = await Promise.all([
       localVisionModel(capture.dataUrl, response.data.viewport),
-      localOcrModel(capture.dataUrl, response.data.viewport)
+      localOcrModel(capture.dataUrl, response.data.viewport),
+      globalThis.PrivvyQrDetector.detect(capture.dataUrl, response.data.viewport)
     ]);
     assertCurrentGeneration(generation);
-    const detections = mergeDetections(response.data.detections, [...vision.detections, ...ocr.detections]);
+    const detections = mergeDetections(response.data.detections, [...vision.detections, ...ocr.detections, ...qr.detections]);
     const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
     state.scan = response.data; state.captureDataUrl = capture.dataUrl; state.rawTerms = rawTerms;
     state.redactionState = PrivvyRedaction.createRedactionState(detections);
     const activeMasks = PrivvyRedaction.mergeRedactionState(state.redactionState).mergedActiveMasks;
     const redacted = await drawRedactedPreview(capture.dataUrl, response.data, activeMasks);
-    state.payload = buildPayload(response.data, redacted, vision, ocr, activeMasks, rawTerms, state.redactionState);
+    state.payload = await updatePayloadAudit(buildPayload(response.data, redacted, vision, ocr, activeMasks, rawTerms, state.redactionState, qr));
     state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = [];
     state.approvalConsumed = false; state.redactionsApproved = false;
     setPhase('scanned');
     renderScan();
     renderRedactionReview();
+    renderAudit();
     renderPlan(createLocalPlan(state.payload.page), 'local');
     await persistSession();
-  } catch (error) { setPhase('failed'); setBoundary('Scan stopped', error.message, 'blocked'); }
+  } catch (error) {
+    if (generation !== state.generation) return;
+    setPhase('failed'); setBoundary('Scan stopped', error.message, 'blocked');
+  }
   finally { $('#scan').disabled = false; }
 }
 
@@ -723,7 +794,7 @@ async function restoreSession() {
   state.redactionsApproved = Boolean(saved.redactionsApproved);
   state.phase = state.pendingHighRisk.length ? 'executing' : (state.receipt.length ? 'completed' : 'ready');
   if (state.payload.task) $('#task').value = state.payload.task;
-  renderScan();
+  renderScan(); renderRedactionReview(); renderAudit();
   renderRedactionReview();
   if (state.localPlan) renderPlan(state.localPlan, 'local');
   if (state.serverPlan) renderPlan(state.serverPlan, 'server');
@@ -852,6 +923,7 @@ api.runtime.onMessage.addListener((message) => {
 
 $('#toggle-overlay').addEventListener('click', () => toggleInteractiveOverlay().catch((error) => setBoundary('Overlay unavailable', error.message, 'blocked')));
 $('#approve-redactions').addEventListener('click', () => rebuildAfterReview(true).then(() => setBoundary('Redactions approved', 'The local image and structural payload were rebuilt from the active mask list.', 'safe')).catch((error) => setBoundary('Approval stopped', error.message, 'blocked')));
+document.querySelectorAll('.task-preset').forEach((button) => button.addEventListener('click', () => { $('#task').value = button.dataset.task; $('#task').focus(); }));
 $('#scan').addEventListener('click', scanPage);
 $('#plan').addEventListener('click', requestPlan);
 $('#execute-local').addEventListener('click', () => executeSafeActions('local'));

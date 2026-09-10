@@ -49,4 +49,7 @@ assert.equal(validCard.length, 1);
 assert.equal(validCard[0].category, 'CARD_LIKE');
 assert.equal(globalThis.PrivvyOCR.collectMatches('Payment 4111 1111 1111 1112').length, 0, 'Invalid generic card candidates must be ignored');
 
+assert.equal(globalThis.PrivvyOCR.collectMatches('Aadhaar-like KYC').some((item) => item.category === 'AADHAAR_LIKE'), false, 'Descriptive Aadhaar text must not be treated as a value');
+assert.equal(globalThis.PrivvyOCR.collectMatches('Aadhaar: 1111 2222 3333').some((item) => item.category === 'AADHAAR_LIKE'), true, 'Labelled Aadhaar values must still be detected');
+
 console.log('All Privvy local OCR tests passed.');

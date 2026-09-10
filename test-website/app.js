@@ -70,6 +70,22 @@ const visualAsset = document.querySelector('#visual-asset');
 const receipt = document.querySelector('#receipt');
 let activeId = 'internship';
 
+class PrivacyShadowFixture extends HTMLElement {
+  connectedCallback() {
+    if (this.shadowRoot) return;
+    const root = this.attachShadow({ mode: 'open' });
+    root.innerHTML = `<div class="shadow-fixture" data-record-purpose="email">
+      <strong>Open Shadow DOM fixture</strong>
+      <span>shadow.fixture@example.test</span>
+      <label>Shadow phone<input type="tel" value="+91 90000 00000" aria-label="Shadow phone test value"></label>
+    </div>`;
+    const style = document.createElement('style');
+    style.textContent = '.shadow-fixture{display:grid;gap:4px;margin-top:10px;padding:8px;border:1px dashed #9fb3c8;background:#f8fafc;color:#243b53;font:11px Segoe UI}.shadow-fixture span{color:#627d98}.shadow-fixture label{display:grid;gap:3px;font-size:10px}.shadow-fixture input{min-height:28px;padding:5px;border:1px solid #9fb3c8;border-radius:3px}';
+    root.append(style);
+  }
+}
+customElements.define('privacy-shadow-fixture', PrivacyShadowFixture);
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }

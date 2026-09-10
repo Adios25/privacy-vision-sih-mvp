@@ -13,7 +13,7 @@ for (const file of manifests) {
   if (manifest.host_permissions?.includes('<all_urls>')) throw new Error(`${file} has broad host permissions`);
 }
 
-const javascriptFiles = ['background.js', 'browser_api.js', 'content.js', 'geometry.js', 'ocr.js', 'popup.js', 'overlayCanvas.js', 'redactionMerger.js'];
+const javascriptFiles = ['background.js', 'browser_api.js', 'content.js', 'geometry.js', 'ocr.js', 'popup.js', 'overlayCanvas.js', 'redactionMerger.js', 'qrDetector.js', 'shadowWalker.js', 'indiaPiiValidator.js'];
 for (const file of javascriptFiles) {
   const result = spawnSync(process.execPath, ['--check', join(root, 'extension', file)], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`${file} failed syntax validation: ${result.stderr}`);

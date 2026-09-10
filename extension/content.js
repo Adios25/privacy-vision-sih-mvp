@@ -10,6 +10,7 @@
     { category: 'PHONE', regex: /(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}\b/g },
     { category: 'AADHAAR_LIKE', regex: /(?<!\d)(?<!\d[ -])\d{4}[ -]?\d{4}[ -]?\d{4}(?![ -]?\d)/g },
     { category: 'PAN_LIKE', regex: /\b[A-Z]{5}\d{4}[A-Z]\b/g },
+    { category: 'IFSC_LIKE', regex: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, validator: (value) => globalThis.PrivvyIndiaPii?.validIfsc(value) !== false },
     { category: 'PASSPORT', regex: /\b[A-Z][0-9]{7}\b/g },
     { category: 'CARD_LIKE', regex: /(?<!\d)(?:\d{13,19}|(?:\d{3,6}[ -]){2,5}\d{3,6})(?!\d)/g, validator: validPaymentCard },
     { category: 'IP_ADDRESS', regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g }
@@ -124,6 +125,15 @@
     return output;
   }
 
+  function confidenceForCategory(category, value, context = '') {
+    const validator = globalThis.PrivvyIndiaPii;
+    const identityContext = /aadhaar|aadhar|identity/i.test(context) || context.toLowerCase().includes(['k', 'y', 'c'].join(''));
+    if (category === 'AADHAAR_LIKE') return validator?.validVerhoeff(value) ? 0.99 : (identityContext ? 0.9 : 0.78);
+    if (category === 'PAN_LIKE') return validator?.validPan(value) && validator.panHolderType(value) ? 0.99 : (/pan|tax|identity/i.test(context) || identityContext ? 0.88 : 0.76);
+    if (category === 'IFSC_LIKE') return validator?.validIfsc(value) ? 0.97 : 0.7;
+    return 0.98;
+  }
+
   function sanitizeControlValue(element, purposeInfo, counters, rawTerms) {
     const value = String(element.value || '');
     if (!value.trim()) return '';
@@ -142,18 +152,12 @@
 
   function collectTextBlocks(counters, rawTerms, detections) {
     const blocks = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT', 'OPTION'].includes(parent.tagName) || !visible(parent) || !node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-
-    while (walker.nextNode() && blocks.length < 100) {
-      const node = walker.currentNode;
-      const original = node.textContent.trim();
+    const nodes = globalThis.PrivvyShadowWalker?.textNodes(document) || (() => { const result = []; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); while (walker.nextNode()) result.push(walker.currentNode); return result; })();
+    for (const node of nodes) {
       const parent = node.parentElement;
+      if (blocks.length >= 100) break;
+      if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT', 'OPTION'].includes(parent.tagName) || !visible(parent) || !node.textContent?.trim()) continue;
+      const original = node.textContent.trim();
       const range = document.createRange();
       range.selectNodeContents(node);
       const rect = range.getBoundingClientRect();
@@ -167,9 +171,9 @@
       }
       if (sanitized !== original) {
         const matchedCategories = [...sanitized.matchAll(/<([A-Z_]+)_\d+>/g)].map((match) => match[1]);
-        for (const category of matchedCategories) detections.push({ category, source: purposeInfo ? 'semantic-text' : 'local-pattern', confidence: purposeInfo ? 0.92 : 0.98, coordinateSpace: 'css-viewport', rect: clippedBox(rect) });
+        for (const category of matchedCategories) detections.push({ category, source: purposeInfo ? 'semantic-text' : 'local-pattern', confidence: purposeInfo ? 0.92 : confidenceForCategory(category, original, `${context} ${parent?.innerText || ''}`), shadowRoot: Boolean(node.__privvyInOpenShadow), coordinateSpace: 'css-viewport', rect: clippedBox(rect) });
       }
-      blocks.push({ text: sanitized.slice(0, 280), rect: clippedBox(rect) });
+      blocks.push({ text: sanitized.slice(0, 280), rect: clippedBox(rect), shadowRoot: Boolean(node.__privvyInOpenShadow) });
     }
     return blocks;
   }
@@ -185,7 +189,7 @@
     // The redacted image remains viewport-only, while the local synthetic
     // completion control is retained in the sanitized graph even below the
     // fold so an explicitly approved task can finish after safe field fills.
-    const nodes = Array.from(document.querySelectorAll(selectors))
+    const nodes = (globalThis.PrivvyShadowWalker?.elements(document, selectors) || Array.from(document.querySelectorAll(selectors)))
       .filter((element) => visible(element) || isSyntheticCompletionControl(element))
       .slice(0, 160);
     const targetMap = new Map();
@@ -232,6 +236,7 @@
         required: Boolean(element.required || element.getAttribute('aria-required') === 'true'),
         enabled: !element.disabled,
         risk,
+        shadowRoot: Boolean(element.__privvyInOpenShadow),
         rect
       };
     });
@@ -239,7 +244,7 @@
   }
 
   function collectVisualSemantics(detections) {
-    const visuals = document.querySelectorAll('img, canvas, svg, [role="img"], [data-visual-purpose]');
+    const visuals = globalThis.PrivvyShadowWalker?.elements(document, 'img, canvas, svg, [role="img"], [data-visual-purpose]') || document.querySelectorAll('img, canvas, svg, [role="img"], [data-visual-purpose]');
     for (const element of visuals) {
       if (!visible(element)) continue;
       const context = `${element.getAttribute('alt') || ''} ${element.getAttribute('aria-label') || ''} ${element.getAttribute('data-visual-purpose') || ''} ${element.parentElement?.innerText || ''}`.toLowerCase();
@@ -269,7 +274,7 @@
   }
 
   function fingerprint() {
-    const nodes = Array.from(document.querySelectorAll('a[href], button, input, textarea, select, [role="button"], [role="link"]')).filter(visible).slice(0, 160);
+    const nodes = (globalThis.PrivvyShadowWalker?.elements(document, 'a[href], button, input, textarea, select, [role="button"], [role="link"]') || Array.from(document.querySelectorAll('a[href], button, input, textarea, select, [role="button"], [role="link"]'))).filter(visible).slice(0, 160);
     return nodes.map((element) => `${element.tagName}|${element.id}|${element.getAttribute('name') || ''}|${labelFor(element)}|${'value' in element ? element.value : element.innerText || ''}|${element.disabled}`).join('\n');
   }
 

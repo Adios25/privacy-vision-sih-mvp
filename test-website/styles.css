@@ -97,6 +97,17 @@ button.secondary:hover:not(:disabled), .starting-states button:hover:not(:disabl
 .record-list dd { margin: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; font-weight: 650; }
 
 .visual-asset { margin-top: 16px; padding: 12px; border: 1px solid var(--border); background: white; }
+.privacy-fixtures { margin-top: 16px; padding: 12px; border: 1px solid var(--border); background: #fff; }
+.fixture-copy { margin: 4px 0 9px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.fixture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fixture-card { display: grid; gap: 4px; min-width: 0; padding: 8px; border: 1px solid var(--border-light); background: #f8fafc; }
+.fixture-card strong { color: var(--ink); font-size: 10px; }
+.fixture-card small { color: var(--muted); font-size: 9px; }
+.fake-qr { width: 82px; height: 82px; border: 7px solid white; background-color: #111827; background-image: linear-gradient(90deg, transparent 25%, #fff 25%, #fff 35%, transparent 35%, transparent 65%, #fff 65%, #fff 75%, transparent 75%), linear-gradient(0deg, transparent 25%, #fff 25%, #fff 35%, transparent 35%, transparent 65%, #fff 65%, #fff 75%, transparent 75%); background-size: 18px 18px; image-rendering: pixelated; }
+.fake-qr::before, .fake-qr::after { content: ""; position: absolute; width: 18px; height: 18px; border: 5px solid #111827; outline: 3px solid white; background: #111827; }
+.fake-qr { position: relative; }
+.fake-qr::before { top: 2px; left: 2px; }.fake-qr::after { right: 2px; bottom: 2px; }
+.fake-barcode { width: 120px; height: 58px; border: 7px solid white; background: repeating-linear-gradient(90deg, #111827 0 2px, white 2px 4px, #111827 4px 8px, white 8px 10px, #111827 10px 11px, white 11px 14px); }
 .asset-content { display: flex; align-items: center; gap: 12px; }
 .asset-copy { display: grid; gap: 3px; }
 .asset-copy strong { color: var(--ink); font-size: 12px; }
@@ -161,6 +172,7 @@ button.secondary:hover:not(:disabled), .starting-states button:hover:not(:disabl
   .form-actions { flex-direction: column-reverse; }
   .form-actions button { width: 100%; }
   .portal-footer { flex-direction: column; gap: 4px; }
+  .fixture-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

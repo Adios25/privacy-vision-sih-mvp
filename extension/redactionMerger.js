@@ -16,7 +16,8 @@
   }
 
   function makeBoundingBox(item, index = 0, type = 'VISUAL') {
-    const normalizedType = ['DOM', 'OCR', 'VISUAL', 'MANUAL'].includes(item?.type) ? item.type : type;
+    const inferredType = item?.category === 'QR_BARCODE' ? 'QR' : type;
+    const normalizedType = ['DOM', 'OCR', 'VISUAL', 'QR', 'MANUAL'].includes(item?.type) ? item.type : inferredType;
     const normalizedRect = rect(item?.rect || item);
     return {
       id: String(item?.id || `${normalizedType.toLowerCase()}_${Date.now()}_${index}`),
