@@ -8,7 +8,7 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const PROFILE_VERSION = 2;
 const SESSION_VERSION = 5;
-const CONTENT_VERSION = '1.3.4';
+const CONTENT_VERSION = '1.3.5';
 
 const defaultProfile = {
   name: 'Soumil Bhosle', email: 'soumil.bhosle@example.test', phone: '+91 98765 43210',
@@ -394,8 +394,7 @@ const PRIVACY_POLICY = {
   "face": { category: "FACE", action: "REDACT" },
   "signature": { category: "SIGNATURE", action: "REDACT" },
   "id card": { category: "IDENTITY_DOCUMENT", action: "REDACT" },
-  "passport": { category: "IDENTITY_DOCUMENT", action: "REDACT" },
-  "qr code": { category: "QR_BARCODE", action: "REDACT" }
+  "passport": { category: "IDENTITY_DOCUMENT", action: "REDACT" }
 };
 
 const visualDetector = new VisualDetector();
@@ -432,6 +431,7 @@ async function localVisionModel(dataUrl, viewport) {
     const policy = PRIVACY_POLICY[det.class];
     if (policy && policy.action === 'REDACT') {
       detections.push({
+        type: 'VISUAL',
         category: policy.category,
         source: 'YOLO11n',
         confidence: det.confidence,
@@ -494,7 +494,7 @@ async function drawRedactedPreview(dataUrl, scan, detections) {
   canvas.width = Math.round(image.width * ratio); canvas.height = Math.round(image.height * ratio);
   const context = canvas.getContext('2d'); context.drawImage(image, 0, 0, canvas.width, canvas.height);
   const imageSize = { width: image.width, height: image.height };
-  const paddingByCategory = { FACE: 5, SIGNATURE: 4, IDENTITY_DOCUMENT: 4, QR_BARCODE: 4 };
+  const paddingByCategory = { FACE: 5, SIGNATURE: 4, IDENTITY_DOCUMENT: 4, QR_BARCODE: 1 };
   detections.forEach((detection) => {
     const { x, y, width, height } = PrivvyGeometry.viewportRectToPreview(detection.rect, imageSize, scan.viewport, ratio);
     const padding = paddingByCategory[detection.category] || (detection.source === 'local-ocr' ? 2 : 3);
@@ -516,7 +516,7 @@ function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, re
     page: PrivvyRedaction.applyMasksToPage(scan.page, stableDetections),
     stateHash: scan.stateHash,
     imageDataUrl: redactedImage,
-    redactionManifest: stableDetections.map((item) => ({ id: item.id, type: item.type, category: item.category, label: item.label, active: item.active, isUserAdded: item.isUserAdded, source: item.source, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
+    redactionManifest: stableDetections.map((item) => ({ id: item.id, type: item.type, category: item.category, label: item.label, active: item.active, isUserAdded: item.isUserAdded, source: item.source, format: item.format || null, verified: item.verified !== false, confidence: item.confidence, coordinateSpace: item.coordinateSpace || 'css-viewport', rect: item.rect })),
     clientMetrics: {
       ...scan.clientMetrics,
       visionMs: vision.ms,
@@ -527,7 +527,7 @@ function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, re
       ocrSensitiveRegions: ocr.detections.length,
       qrMs: qr?.ms || 0,
       qrEngine: qr?.engine || 'unavailable',
-      qrDetections: stableDetections.filter((item) => item.type === 'QR').length
+      qrDetections: stableDetections.filter((item) => item.type === 'QR' && item.verified !== false).length
     },
     leakCheck: { status: 'pending', knownRawTermsInStructuredPayload: 0 }
   };
@@ -544,6 +544,17 @@ function renderRedactionReview() {
   $('#auto-mask-count').textContent = String(review.autoDetections.length);
   $('#manual-mask-count').textContent = String(review.manualDetections.length);
   $('#disabled-mask-count').textContent = String([...review.autoDetections, ...review.manualDetections].filter((item) => !item.active).length);
+  const provenance = $('#mask-provenance');
+  const qrMasks = [...review.autoDetections, ...review.manualDetections].filter((item) => item.category === 'QR_BARCODE');
+  provenance.replaceChildren();
+  if (!qrMasks.length) provenance.textContent = 'No QR/barcode decoder results yet.';
+  for (const mask of qrMasks) {
+    const row = document.createElement('span');
+    row.dataset.verified = String(mask.verified !== false);
+    const status = mask.verified !== false ? 'verified' : 'unverified';
+    row.textContent = `QR/barcode · ${mask.source || 'unknown'} · ${mask.format || 'unknown format'} · ${status}`;
+    provenance.append(row);
+  }
   $('#toggle-overlay').disabled = !state.scan;
   $('#approve-redactions').disabled = !state.scan;
 }
@@ -553,7 +564,7 @@ async function updatePayloadAudit(payload) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
   const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
   const masks = [...(state.redactionState?.autoDetections || []), ...(state.redactionState?.manualDetections || [])];
-  payload.audit = { activeMasks: masks.filter((item) => item.active).length, disabledMasks: masks.filter((item) => !item.active).length, qrMasks: masks.filter((item) => item.type === 'QR' && item.active).length, shadowDomDetections: [...(payload.page.textBlocks || []), ...(payload.page.elements || [])].filter((item) => item.shadowRoot).length, structuredPayloadMatches: payload.leakCheck.knownRawTermsInStructuredPayload, payloadHash: `sha256-${hash}` };
+  payload.audit = { activeMasks: masks.filter((item) => item.active).length, disabledMasks: masks.filter((item) => !item.active).length, qrMasks: masks.filter((item) => item.category === 'QR_BARCODE' && item.active && item.verified !== false).length, shadowDomDetections: [...(payload.page.textBlocks || []), ...(payload.page.elements || [])].filter((item) => item.shadowRoot).length, structuredPayloadMatches: payload.leakCheck.knownRawTermsInStructuredPayload, payloadHash: `sha256-${hash}` };
   return payload;
 }
 
@@ -677,7 +688,8 @@ async function scanPage() {
       globalThis.PrivvyQrDetector.detect(capture.dataUrl, response.data.viewport)
     ]);
     assertCurrentGeneration(generation);
-    const detections = mergeDetections(response.data.detections, [...vision.detections, ...ocr.detections, ...qr.detections]);
+    const filteredVisionDetections = PrivvyRedaction.filterVisualQrCandidates(vision.detections);
+    const detections = mergeDetections(response.data.detections, [...filteredVisionDetections, ...ocr.detections, ...qr.detections]);
     const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
     state.scan = response.data; state.captureDataUrl = capture.dataUrl; state.rawTerms = rawTerms;
     state.redactionState = PrivvyRedaction.createRedactionState(detections);

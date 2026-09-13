@@ -87,6 +87,9 @@ button.ghost:hover:not(:disabled) { background: #f4f8f7; }
 .review-panel { margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #f7fbf9; }
 .review-counters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; color: var(--muted); font-size: 10px; }
 .review-counters span { padding: 4px 6px; border-radius: 5px; background: #e7f0ec; }
+.mask-provenance { display: grid; gap: 4px; margin: 8px 0; color: var(--muted); font: 700 9px/1.4 SFMono-Regular, Consolas, monospace; }
+.mask-provenance span { padding: 5px 6px; border: 1px solid #bde7da; border-radius: 5px; background: #effaf5; color: #315c50; overflow-wrap: anywhere; }
+.mask-provenance span[data-verified="false"] { border-color: #e8c37e; background: var(--warning-soft); color: var(--warning); }
 .review-panel .action-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .audit-panel { margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: #eef6f2; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--border); }

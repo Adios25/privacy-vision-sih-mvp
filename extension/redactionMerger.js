@@ -1,4 +1,6 @@
 (() => {
+  const QR_VISUAL_CONFIDENCE_THRESHOLD = 0.88;
+
   function rect(value) {
     return {
       x: Math.max(0, Number(value?.x) || 0),
@@ -15,6 +17,20 @@
     return right > left && bottom > top;
   }
 
+  function isLikelyQrBox(value) {
+    const candidate = rect(value?.rect || value);
+    if (candidate.width < 40 || candidate.height < 40) return false;
+    const aspectRatio = candidate.width / candidate.height;
+    return aspectRatio >= 0.75 && aspectRatio <= 1.33;
+  }
+
+  function filterVisualQrCandidates(items = [], confidenceThreshold = QR_VISUAL_CONFIDENCE_THRESHOLD) {
+    return items.filter((item) => {
+      if (item?.category !== 'QR_BARCODE' || item?.source !== 'YOLO11n') return true;
+      return false;
+    });
+  }
+
   function makeBoundingBox(item, index = 0, type = 'VISUAL') {
     const inferredType = item?.category === 'QR_BARCODE' ? 'QR' : type;
     const normalizedType = ['DOM', 'OCR', 'VISUAL', 'QR', 'MANUAL'].includes(item?.type) ? item.type : inferredType;
@@ -29,7 +45,9 @@
       active: item?.active !== false,
       isUserAdded: Boolean(item?.isUserAdded || normalizedType === 'MANUAL'),
       source: item?.source || (normalizedType === 'MANUAL' ? 'user' : 'unknown'),
-      confidence: Number.isFinite(Number(item?.confidence)) ? Number(item.confidence) : (normalizedType === 'MANUAL' ? 1 : 0)
+      confidence: Number.isFinite(Number(item?.confidence)) ? Number(item.confidence) : (normalizedType === 'MANUAL' ? 1 : 0),
+      verified: item?.verified !== false,
+      format: item?.format ? String(item.format) : null
     };
   }
 
@@ -81,5 +99,5 @@
     }
   }
 
-  globalThis.PrivvyRedaction = { rect, intersects, makeBoundingBox, createRedactionState, mergeRedactionState, applyMasksToPage, redactCanvas };
+  globalThis.PrivvyRedaction = { QR_VISUAL_CONFIDENCE_THRESHOLD, rect, intersects, isLikelyQrBox, filterVisualQrCandidates, makeBoundingBox, createRedactionState, mergeRedactionState, applyMasksToPage, redactCanvas };
 })();

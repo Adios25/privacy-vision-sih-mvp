@@ -1,5 +1,5 @@
 (() => {
-  const CONTENT_VERSION = '1.3.4';
+  const CONTENT_VERSION = '1.3.5';
   if (globalThis.__privvyContentVersion === CONTENT_VERSION) return;
   globalThis.__privvyContentVersion = CONTENT_VERSION;
 
@@ -247,13 +247,24 @@
     const visuals = globalThis.PrivvyShadowWalker?.elements(document, 'img, canvas, svg, [role="img"], [data-visual-purpose]') || document.querySelectorAll('img, canvas, svg, [role="img"], [data-visual-purpose]');
     for (const element of visuals) {
       if (!visible(element)) continue;
+      const directContext = `${element.getAttribute('alt') || ''} ${element.getAttribute('aria-label') || ''} ${element.getAttribute('data-visual-purpose') || ''} ${element.getAttribute('title') || ''} ${element.getAttribute('name') || ''} ${element.id || ''} ${typeof element.className === 'string' ? element.className : ''}`.toLowerCase();
       const context = `${element.getAttribute('alt') || ''} ${element.getAttribute('aria-label') || ''} ${element.getAttribute('data-visual-purpose') || ''} ${element.parentElement?.innerText || ''}`.toLowerCase();
       const category = context.includes('face') || context.includes('portrait') ? 'FACE'
         : context.includes('signature') ? 'SIGNATURE'
           : context.includes('aadhaar') || context.includes('identity document') ? 'IDENTITY_DOCUMENT'
-            : context.includes('qr') || context.includes('barcode') ? 'QR_BARCODE' : null;
-      if (category) detections.push({ category, source: 'visual-semantic', confidence: 0.88, coordinateSpace: 'css-viewport', rect: clippedBox(element.getBoundingClientRect()) });
+            : isExplicitQrVisual(element, directContext) ? 'QR_BARCODE' : null;
+      if (category) detections.push({
+        category, source: 'visual-semantic', confidence: 0.88, coordinateSpace: 'css-viewport', rect: clippedBox(element.getBoundingClientRect()),
+        ...(category === 'QR_BARCODE' ? { type: 'VISUAL', verified: false, active: false } : {})
+      });
     }
+  }
+
+  function isExplicitQrVisual(element, directContext) {
+    const tagName = element.tagName;
+    if (tagName !== 'IMG' && tagName !== 'CANVAS') return false;
+    if (!/\b(?:qr(?:\s+code)?|barcode)\b/.test(directContext)) return false;
+    return !/\b(?:logo|generator|scanner|scan|menu|navigation|icon)\b/.test(directContext);
   }
 
   function intersectionOverUnion(a, b) {
