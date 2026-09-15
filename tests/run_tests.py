@@ -49,6 +49,18 @@ def main():
     submit = next(action for action in validated["actions"] if action["type"] == "CLICK")
     assert submit["highRisk"] is True
 
+    agent_payload = json.loads(json.dumps(payload))
+    agent_payload["task"] = {"id": "find_download", "label": "Find the download button"}
+    agent_payload["page"]["elements"].append({"id": "e4", "role": "button", "enabled": True, "value": "", "purpose": None, "inputType": "button", "label": "Download application", "risk": "SAFE"})
+    agent_plan = server.validate_plan(server.heuristic_plan(agent_payload), agent_payload)
+    assert any(action["type"] == "HIGHLIGHT" and action["targetId"] == "e4" for action in agent_plan["actions"])
+
+    answer_payload = json.loads(json.dumps(payload))
+    answer_payload["task"] = {"id": "summarize_status", "label": "Summarize visible application status"}
+    answer_payload["page"]["elements"].append({"id": "e5", "role": "status", "enabled": True, "value": "Draft", "purpose": None, "inputType": "text", "label": "Application status", "risk": "SAFE"})
+    answer_plan = server.validate_plan(server.heuristic_plan(answer_payload), answer_payload)
+    assert any(action["type"] == "ANSWER" and "Draft" in action["text"] for action in answer_plan["actions"])
+
     invalid = server.validate_plan({"actions": [{"type": "TYPE_PLACEHOLDER", "targetId": "e1", "placeholder": "<USER_PHONE>"}]}, payload)
     assert invalid["actions"][0]["type"] == "ABORT"
 
@@ -72,12 +84,16 @@ def main():
     assert "Soumil Bhosle" in website_js and "Soumil Bhosle" in popup_js
     assert "soumil.bhosle@example.test" in website_js and "soumil.bhosle@example.test" in popup_js
     assert "createLocalPlan" in popup_js and "deterministic-schema-v1" in popup_js
+    assert "task-template" in popup_js and "PrivvyAgentWorkflow" in popup_js and "MAX_AGENT_STEPS" in popup_js
+    assert "PV_HIGHLIGHT_TARGET" in popup_js and "approveSuggestedAction" in popup_js
     assert "localOcrModel" in popup_js and "PrivvyOCR.LocalOcrDetector" in popup_js
     assert "local-ocr" in ocr_js and "extractSensitiveOcr" in ocr_js
     assert "validPaymentCard" in ocr_js and "validPaymentCard" in extension_js
     assert "pattern.validator" in ocr_js and "pattern.validator" in extension_js
     assert "ocr.rawTerms" in popup_js and "ocr.rawTerms" not in popup_js.split("async function persistSession", 1)[1].split("async function discardPersistedSession", 1)[0]
     popup_html = (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
+    assert 'src="agentWorkflow.js"' in popup_html
+    assert "download-summary" in (ROOT / "test-website" / "index.html").read_text(encoding="utf-8")
     assert popup_html.index('src="tesseract.min.js"') < popup_html.index('src="ocr.js"') < popup_html.index('src="popup.js"')
     assert popup_html.index('src="geometry.js"') < popup_html.index('src="popup.js"')
     assert "screenshotRectToViewport" in popup_js and "coordinateSpace: 'css-viewport'" in popup_js

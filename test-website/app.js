@@ -189,6 +189,14 @@ document.querySelectorAll('[data-preset]').forEach((button) => button.addEventLi
   document.querySelectorAll('[data-preset]').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
 }));
 document.querySelector('#clear-form').addEventListener('click', () => resetForm('empty'));
+document.querySelector('#download-summary').addEventListener('click', () => {
+  document.querySelector('#form-error').textContent = 'Synthetic download approved locally. No file was sent anywhere.';
+  document.querySelector('#form-error').hidden = false;
+});
+document.querySelector('#next-step').addEventListener('click', () => {
+  document.querySelector('#form-error').textContent = 'Synthetic next step opened locally.';
+  document.querySelector('#form-error').hidden = false;
+});
 fieldGrid.addEventListener('input', updateFieldStates);
 
 form.addEventListener('submit', (event) => {

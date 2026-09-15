@@ -437,6 +437,22 @@
     return { receipt, nextStateHash: lastScan.stateHash };
   }
 
+  function highlightTarget(message) {
+    if (!lastScan || message.scanId !== lastScan.scanId) throw new Error('This highlight does not match the latest scan. Scan the page again.');
+    if (message.expectedStateHash !== hash(fingerprint())) throw new Error('The page changed after planning. Scan the current state again.');
+    const target = lastScan.targetMap.get(message.targetId);
+    if (!(target instanceof HTMLElement) || !rendered(target) || target.disabled) throw new Error('The requested target is no longer visible or enabled.');
+    const previousOutline = target.style.outline;
+    const previousOffset = target.style.outlineOffset;
+    target.style.outline = '3px solid #159d75';
+    target.style.outlineOffset = '3px';
+    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+    setTimeout(() => {
+      if (target.isConnected) { target.style.outline = previousOutline; target.style.outlineOffset = previousOffset; }
+    }, 8000);
+    return { nextStateHash: hash(fingerprint()) };
+  }
+
   api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
       if (message?.type === 'PV_PING') sendResponse({ ok: true, contentVersion: CONTENT_VERSION });
@@ -445,6 +461,7 @@
         if (!globalThis.PrivvyOverlayCanvas) throw new Error('Interactive overlay is unavailable; scan the page again.');
         sendResponse(globalThis.PrivvyOverlayCanvas.start({ masks: message.masks || [] }));
       }
+      else if (message?.type === 'PV_HIGHLIGHT_TARGET') sendResponse({ ok: true, data: highlightTarget(message) });
       else if (message?.type === 'PV_EXECUTE_ACTIONS') sendResponse({ ok: true, data: executeActions(message) });
       else if (message?.type === 'PV_HIDE_OVERLAY') {
         globalThis.PrivvyOverlayCanvas?.stop();

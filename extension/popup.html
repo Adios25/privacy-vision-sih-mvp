@@ -21,6 +21,7 @@
 
     <section class="control-section">
       <label for="task">What should Privvy help you do?</label>
+      <select id="task-template" aria-label="Choose an assistance task"></select>
       <textarea id="task" class="resize-none" rows="2">Fill supported empty fields, preserve existing values, and prepare the form for submission.</textarea>
       <div class="task-presets" aria-label="Assistance task presets">
         <button type="button" class="task-preset" data-task="Prepare this application without changing existing values.">Prepare application</button>
@@ -51,6 +52,7 @@
         <div class="section-heading"><div><small>Human-in-the-loop</small><h2 id="review-title">Review &amp; Adjust Redactions</h2></div></div>
         <div class="review-counters"><span>Auto-detected Masks: <b id="auto-mask-count">0</b></span><span>User-added Masks: <b id="manual-mask-count">0</b></span><span>Disabled Masks: <b id="disabled-mask-count">0</b></span></div>
         <div id="mask-provenance" class="mask-provenance" aria-live="polite">No QR/barcode decoder results yet.</div>
+        <p id="agent-progress" class="agent-progress" aria-live="polite">Task: Prepare empty form fields · Status: Idle</p>
         <div class="action-row"><button id="toggle-overlay" class="ghost" type="button" disabled>Toggle Interactive Overlay</button><button id="approve-redactions" class="primary" type="button" disabled>Confirm &amp; Generate Plan</button></div>
       </section>
       <div class="audit-panel" aria-label="Local egress audit">
@@ -151,6 +153,7 @@
   <script src="redactionMerger.js"></script>
   <script src="indiaPiiValidator.js"></script>
   <script src="shadowWalker.js"></script>
+  <script src="agentWorkflow.js"></script>
   <script src="zxing-browser.min.js"></script>
   <script src="qrDetector.js"></script>
   <script src="browser_api.js"></script>

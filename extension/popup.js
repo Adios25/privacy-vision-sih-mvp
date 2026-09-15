@@ -3,12 +3,15 @@ const state = {
   tabId: null, windowId: null, scan: null, payload: null,
   localPlan: null, serverPlan: null, executionSource: null,
   pendingHighRisk: [], receipt: [], profile: null, requestStarted: 0,
-  phase: 'idle', generation: 0, approvalConsumed: false, redactionState: null, captureDataUrl: null, redactionsApproved: false
+  phase: 'idle', generation: 0, approvalConsumed: false, redactionState: null, captureDataUrl: null, redactionsApproved: false,
+  task: null, agentSteps: 0, pendingActionApproval: null
 };
 const $ = (selector) => document.querySelector(selector);
 const PROFILE_VERSION = 2;
 const SESSION_VERSION = 5;
 const CONTENT_VERSION = '1.3.5';
+const workflow = globalThis.PrivvyAgentWorkflow;
+const MAX_AGENT_STEPS = 3;
 
 const defaultProfile = {
   name: 'Soumil Bhosle', email: 'soumil.bhosle@example.test', phone: '+91 98765 43210',
@@ -30,6 +33,28 @@ const promiseCall = apiCall;
 
 function setPhase(phase) {
   state.phase = phase;
+  renderAgentProgress();
+}
+
+function selectedTask() {
+  return workflow?.normalizeTask($('#task-template')?.value || $('#task')?.value) || {
+    id: 'prepare_form', label: $('#task')?.value?.trim() || 'Prepare empty form fields', mode: 'action'
+  };
+}
+
+function renderAgentProgress(message = '') {
+  const node = $('#agent-progress');
+  if (!node) return;
+  const task = state.task || selectedTask();
+  const status = String(state.phase || 'idle').replace(/^./, (character) => character.toUpperCase());
+  node.textContent = `Task: ${task.label} · Status: ${message || status}${state.agentSteps ? ` · Step ${state.agentSteps}/${MAX_AGENT_STEPS}` : ''}`;
+}
+
+function setAgentTask(value) {
+  state.task = workflow?.normalizeTask(value) || selectedTask();
+  if ($('#task-template')) $('#task-template').value = state.task.id;
+  if ($('#task')) $('#task').value = state.task.label;
+  renderAgentProgress();
 }
 
 function currentGeneration() {
@@ -62,6 +87,8 @@ async function persistSession() {
     receipt: state.receipt,
     redactionState: state.redactionState,
     redactionsApproved: state.redactionsApproved,
+    task: state.task,
+    agentSteps: state.agentSteps,
     savedAt: Date.now()
   };
   try { await storageSet(sessionStore(), { pvActiveSession: saved }); } catch (error) { console.warn('Session persistence unavailable:', error.message); }
@@ -149,7 +176,7 @@ function targetSummary(action) {
 
 function actionRows(actions, receipt = false) {
   return actions.map((action, index) => {
-    const detail = `${targetSummary(action)} ${action.placeholder || ''}`.trim();
+    const detail = `${action.text || targetSummary(action)} ${action.placeholder || ''}`.trim();
     const status = receipt ? action.status : 'planned';
     const reason = receipt && action.reason ? `<small>${escapeHtml(action.reason)}</small>` : '';
     return `<div class="action-item"><code>${String(index + 1).padStart(2, '0')}</code><div><strong>${escapeHtml(action.type)}</strong><small>${escapeHtml(detail)}</small>${reason}</div><span class="action-state" data-state="${escapeHtml(status)}">${escapeHtml(status)}</span></div>`;
@@ -512,7 +539,7 @@ function buildPayload(scan, redactedImage, vision, ocr, detections, rawTerms, re
   const categoryCounts = stableDetections.reduce((summary, item) => { summary[item.category] = (summary[item.category] || 0) + 1; return summary; }, {});
   const payload = {
     protocolVersion: '1.0',
-    task: $('#task').value.trim(),
+    task: state.task || selectedTask(),
     page: PrivvyRedaction.applyMasksToPage(scan.page, stableDetections),
     stateHash: scan.stateHash,
     imageDataUrl: redactedImage,
@@ -644,6 +671,27 @@ function renderScan() {
 }
 
 function createLocalPlan(page) {
+  const task = state.task || selectedTask();
+  if (task.id === 'summarize_status') {
+    const status = (page.elements || []).find((element) => /status|state/i.test(String(element.label || '')) && element.value);
+    return { planVersion: '1.0', provider: 'local', model: 'deterministic-schema-v1', message: 'The offline planner produced a safe answer from the sanitized UI graph.', actions: [{ id: 'a1', source: 'local', type: 'ANSWER', text: status ? `${status.label}: ${status.value}` : 'No visible application status was found.', risk: 'SAFE', highRisk: false }, { id: 'a2', source: 'local', type: 'FINISH', message: 'Answer ready.', risk: 'SAFE', highRisk: false }], metrics: { serverMs: 0, modelMs: 0 } };
+  }
+  if (task.id === 'locate_fields') {
+    const fields = (page.elements || []).filter((element) => element.role === 'textbox' && element.required && element.enabled);
+    return { planVersion: '1.0', provider: 'local', model: 'deterministic-schema-v1', message: 'The offline planner listed required fields without editing them.', actions: [{ id: 'a1', source: 'local', type: 'ANSWER', text: fields.length ? `Required fields: ${fields.map((element) => element.label || element.id).join('; ')}` : 'No required fields were found.', risk: 'SAFE', highRisk: false }, { id: 'a2', source: 'local', type: 'FINISH', message: 'Field list ready.', risk: 'SAFE', highRisk: false }], metrics: { serverMs: 0, modelMs: 0 } };
+  }
+  if (task.id === 'extract_case_info') {
+    const safe = (page.elements || []).filter((element) => element.label && element.value && !['PASSWORD', 'HIGH_RISK'].includes(element.risk)).slice(0, 8);
+    return { planVersion: '1.0', provider: 'local', model: 'deterministic-schema-v1', message: 'The offline planner extracted only sanitized non-sensitive fields.', actions: [{ id: 'a1', source: 'local', type: 'ANSWER', text: safe.length ? safe.map((element) => `${element.label}: ${element.value}`).join('; ') : 'No non-sensitive case information was found.', risk: 'SAFE', highRisk: false }, { id: 'a2', source: 'local', type: 'FINISH', message: 'Safe information ready.', risk: 'SAFE', highRisk: false }], metrics: { serverMs: 0, modelMs: 0 } };
+  }
+  if (task.id === 'find_download') {
+    const target = (page.elements || []).find((element) => ['button', 'link'].includes(element.role) && /download|export|save/i.test(String(element.label || '')));
+    return { planVersion: '1.0', provider: 'local', model: 'deterministic-schema-v1', message: target ? 'The offline planner found a matching download control.' : 'No validated download control was found.', actions: [target ? { id: 'a1', source: 'local', type: 'HIGHLIGHT', targetId: target.id, reason: 'Matched a visible download-related control.', risk: 'SAFE', highRisk: false } : { id: 'a1', source: 'local', type: 'ABORT', reason: 'No validated download control was found.', risk: 'SAFE', highRisk: false }, { id: 'a2', source: 'local', type: 'FINISH', message: 'Review ready.', risk: 'SAFE', highRisk: false }], metrics: { serverMs: 0, modelMs: 0 } };
+  }
+  if (task.id === 'next_page') {
+    const target = (page.elements || []).find((element) => ['button', 'link'].includes(element.role) && /next|continue|proceed/i.test(String(element.label || '')));
+    return { planVersion: '1.0', provider: 'local', model: 'deterministic-schema-v1', message: target ? 'The offline planner found a navigation control.' : 'No validated next-page control was found.', actions: [target ? { id: 'a1', source: 'local', type: 'CLICK', targetId: target.id, reason: 'Matched a next-page control.', risk: 'MEDIUM', highRisk: false } : { id: 'a1', source: 'local', type: 'REQUEST_RESCAN', reason: 'No visible next-page control was found.', risk: 'SAFE', highRisk: false }, { id: 'a2', source: 'local', type: 'FINISH', message: 'Navigation plan ready.', risk: 'SAFE', highRisk: false }], metrics: { serverMs: 0, modelMs: 0 } };
+  }
   const actions = (page.elements || []).filter((element) => (
     element.role === 'textbox'
     && element.enabled
@@ -671,7 +719,7 @@ function createLocalPlan(page) {
 async function scanPage() {
   if (!['idle', 'scanned', 'ready', 'failed', 'blocked', 'completed'].includes(state.phase)) return;
   const generation = ++state.generation;
-  setPhase('scanning');
+  state.task = selectedTask(); state.agentSteps = 0; state.pendingActionApproval = null; setPhase('scanning');
   $('#scan').disabled = true; setBoundary('Inspecting locally', 'Reading the active tab and running the local visual pipeline. No server request is being made.', 'working');
   try {
     const response = await sendToTab({ type: 'PV_SCAN_PAGE' });
@@ -692,6 +740,7 @@ async function scanPage() {
     const detections = mergeDetections(response.data.detections, [...filteredVisionDetections, ...ocr.detections, ...qr.detections]);
     const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
     state.scan = response.data; state.captureDataUrl = capture.dataUrl; state.rawTerms = rawTerms;
+    setPhase('sanitizing');
     state.redactionState = PrivvyRedaction.createRedactionState(detections);
     const activeMasks = PrivvyRedaction.mergeRedactionState(state.redactionState).mergedActiveMasks;
     const redacted = await drawRedactedPreview(capture.dataUrl, response.data, activeMasks);
@@ -706,7 +755,7 @@ async function scanPage() {
     await persistSession();
   } catch (error) {
     if (generation !== state.generation) return;
-    setPhase('failed'); setBoundary('Scan stopped', error.message, 'blocked');
+    setPhase('blocked'); setBoundary('Scan stopped', error.message, 'blocked');
   }
   finally { $('#scan').disabled = false; }
 }
@@ -732,7 +781,7 @@ function validateClientPlan(plan) {
   if (!plan || plan.planVersion !== '1.0' || !Array.isArray(plan.actions) || plan.actions.length > 20) throw new Error('The planner returned an unsupported action protocol.');
   const ids = new Set(); const targets = new Set();
   for (const action of plan.actions) {
-    if (!action || !['TYPE_PLACEHOLDER', 'CLICK', 'SCROLL', 'FINISH', 'ABORT'].includes(action.type)) throw new Error('The planner returned an unsupported action.');
+    if (!action || !workflow.ALLOWED_ACTIONS.includes(action.type)) throw new Error('The planner returned an unsupported action.');
     if (!/^a\d+$/.test(action.id) || ids.has(action.id)) throw new Error('The planner returned duplicate action IDs.');
     ids.add(action.id);
     if (action.targetId && targets.has(action.targetId)) throw new Error('The planner returned duplicate target operations.');
@@ -750,7 +799,7 @@ async function requestPlan() {
   if (!$('#allow-server-context').checked) { setBoundary('Approval required', 'Enable the per-scan approval to send sanitized context to the planner.', 'blocked'); return; }
   if (!['scanned', 'ready'].includes(state.phase)) return;
   const generation = currentGeneration();
-  setPhase('planning');
+  state.task = selectedTask(); setPhase('planning');
   $('#plan').disabled = true; state.requestStarted = performance.now(); setBoundary('Sending sanitized context', 'Only the redacted image, sanitized graph, metrics, and task are leaving the extension.', 'working');
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 30000);
   try {
@@ -804,8 +853,10 @@ async function restoreSession() {
   state.receipt = saved.receipt || [];
   state.redactionState = saved.redactionState || state.payload.redactionState || null;
   state.redactionsApproved = Boolean(saved.redactionsApproved);
+  state.task = saved.task || workflow?.normalizeTask(saved.payload.task) || selectedTask();
+  state.agentSteps = Number.isInteger(saved.agentSteps) ? saved.agentSteps : 0;
   state.phase = state.pendingHighRisk.length ? 'executing' : (state.receipt.length ? 'completed' : 'ready');
-  if (state.payload.task) $('#task').value = state.payload.task;
+  setAgentTask(state.task);
   renderScan(); renderRedactionReview(); renderAudit();
   renderRedactionReview();
   if (state.localPlan) renderPlan(state.localPlan, 'local');
@@ -827,6 +878,32 @@ async function execute(actions, allowHighRisk, appendReceipt = false) {
   return response.data.receipt;
 }
 
+async function highlightAction(action) {
+  const response = await sendToTab({ type: 'PV_HIGHLIGHT_TARGET', scanId: state.scan.scanId, expectedStateHash: state.scan.stateHash, targetId: action.targetId });
+  if (!response?.ok) throw new Error(response?.error || 'The target could not be highlighted.');
+  state.scan.stateHash = response.data.nextStateHash;
+  renderReceipt([{ ...action, status: 'highlighted', reason: action.reason || 'Target highlighted for review.' }], state.executionSource);
+}
+
+async function approveSuggestedAction() {
+  const action = state.pendingActionApproval;
+  if (!action) return;
+  state.pendingActionApproval = null;
+  $('#confirmation').classList.add('hidden');
+  state.agentSteps += 1;
+  setPhase('executing');
+  try {
+    const receipt = await execute([{ ...action, type: 'CLICK', highRisk: false, risk: 'MEDIUM' }], false, true);
+    if (!receipt.some((item) => item.status === 'executed')) throw new Error(receipt[0]?.reason || 'The approved action was not executed.');
+    setPhase('verifying'); setBoundary('Verifying task result', 'Privvy is checking the current page after the approved local action.', 'working');
+    const response = await sendToTab({ type: 'PV_SCAN_PAGE' });
+    if (!response?.ok) throw new Error(response?.error || 'Post-action verification failed.');
+    state.scan.stateHash = response.data.stateHash;
+    setPhase('completed'); setBoundary('Task complete', 'The approved action was executed locally and the page was verified.', 'safe');
+  } catch (error) { setPhase('blocked'); setBoundary('Action stopped', error.message, 'blocked'); }
+  finally { await persistSession(); }
+}
+
 async function executeSafeActions(source) {
   const plan = source === 'server' ? state.serverPlan : state.localPlan;
   if (!plan || state.executionSource || !['ready', 'scanned'].includes(state.phase)) return;
@@ -835,6 +912,23 @@ async function executeSafeActions(source) {
   $('#execute-local').disabled = true; $('#execute-server').disabled = true; $('#plan').disabled = true;
   setBoundary('Validating actions locally', `Targets from the ${source} plan are being checked before execution.`, 'working');
   try {
+    if (state.agentSteps >= MAX_AGENT_STEPS) throw new Error('The agent reached its three-step safety limit.');
+    const answer = plan.actions.find((action) => action.type === 'ANSWER');
+    if (answer) {
+      renderReceipt([{ ...answer, status: 'executed', reason: 'Answer produced from sanitized context.' }], source);
+      state.agentSteps += 1; setPhase('completed'); setBoundary('Task complete', answer.text, 'safe'); await persistSession(); return;
+    }
+    const highlight = plan.actions.find((action) => action.type === 'HIGHLIGHT');
+    if (highlight) {
+      await highlightAction(highlight);
+      const target = state.payload?.page?.elements?.find((element) => element.id === highlight.targetId);
+      state.pendingActionApproval = { ...highlight, type: 'CLICK', highRisk: false, risk: 'MEDIUM' };
+      $('#confirmation-title').textContent = 'Approve highlighted action?';
+      $('#confirmation-copy').textContent = `Privvy found ${target?.label || 'the requested control'}. Approve one local click to continue?`;
+      $('#confirm').textContent = 'Approve and click locally'; $('#confirm').disabled = false; $('#confirmation').classList.remove('hidden');
+      setPhase('review_required'); setBoundary('Review required', 'The target was highlighted. Approve the click before Privvy changes the page.', 'working');
+      await persistSession(); return;
+    }
     state.pendingHighRisk = plan.actions.filter((action) => action.type === 'CLICK' && action.highRisk);
     if (!state.pendingHighRisk.length && plan.submissionTargetId) {
       state.pendingHighRisk = [{ type: 'CLICK', targetId: plan.submissionTargetId, highRisk: true }];
@@ -847,7 +941,7 @@ async function executeSafeActions(source) {
     } else { setPhase('completed'); setBoundary('Task actions complete', `${executed} validated actions executed locally.`, 'safe'); }
     await persistSession();
   } catch (error) {
-    state.executionSource = null; setPhase('failed');
+    state.executionSource = null; setPhase('blocked');
     $('#execute-local').disabled = !state.localPlan;
     $('#execute-server').disabled = !state.serverPlan;
     $('#plan').disabled = false;
@@ -856,6 +950,10 @@ async function executeSafeActions(source) {
 }
 
 async function declineSubmission() {
+  if (state.pendingActionApproval) {
+    state.pendingActionApproval = null; $('#confirmation').classList.add('hidden'); setPhase('completed');
+    setBoundary('Action declined', 'No browser action was executed. The page remains unchanged.', 'idle'); await persistSession(); return;
+  }
   state.pendingHighRisk = [];
   setPhase('completed');
   $('#confirmation').classList.add('hidden');
@@ -864,6 +962,7 @@ async function declineSubmission() {
 }
 
 async function confirmSubmission() {
+  if (state.pendingActionApproval) return approveSuggestedAction();
   if (state.approvalConsumed || !state.pendingHighRisk.length || state.phase !== 'executing') return;
   state.approvalConsumed = true;
   $('#confirm').disabled = true; setBoundary('Executing approved submission', 'The current target is being revalidated on the synthetic portal.', 'working');
@@ -935,7 +1034,7 @@ api.runtime.onMessage.addListener((message) => {
 
 $('#toggle-overlay').addEventListener('click', () => toggleInteractiveOverlay().catch((error) => setBoundary('Overlay unavailable', error.message, 'blocked')));
 $('#approve-redactions').addEventListener('click', () => rebuildAfterReview(true).then(() => setBoundary('Redactions approved', 'The local image and structural payload were rebuilt from the active mask list.', 'safe')).catch((error) => setBoundary('Approval stopped', error.message, 'blocked')));
-document.querySelectorAll('.task-preset').forEach((button) => button.addEventListener('click', () => { $('#task').value = button.dataset.task; $('#task').focus(); }));
+document.querySelectorAll('.task-preset').forEach((button) => button.addEventListener('click', () => { setAgentTask(button.dataset.task); $('#task').focus(); }));
 $('#scan').addEventListener('click', scanPage);
 $('#plan').addEventListener('click', requestPlan);
 $('#execute-local').addEventListener('click', () => executeSafeActions('local'));
@@ -945,12 +1044,21 @@ $('#cancel-confirmation').addEventListener('click', declineSubmission);
 $('#clear').addEventListener('click', clearSession);
 $('#settings-form').addEventListener('submit', saveSettings);
 $('#clear-profile').addEventListener('click', clearProfile);
+if ($('#task-template') && workflow) {
+  $('#task-template').replaceChildren(...workflow.TASK_TEMPLATES.map((task) => {
+    const option = document.createElement('option'); option.value = task.id; option.textContent = task.label; return option;
+  }));
+  $('#task-template').value = 'prepare_form';
+  $('#task-template').addEventListener('change', () => setAgentTask($('#task-template').value));
+  $('#task').addEventListener('input', () => renderAgentProgress());
+}
 loadSettings().then(async () => {
   try { await sendToTab({ type: 'PV_HIDE_OVERLAY' }); } catch (error) {
     // The initial popup load may have no injectable tab yet.
     console.debug('Initial overlay cleanup skipped:', error.message);
   }
   await restoreSession();
+  if (!state.task) setAgentTask('prepare_form');
   $('#scan').disabled = false;
   $('#clear').disabled = false;
 });

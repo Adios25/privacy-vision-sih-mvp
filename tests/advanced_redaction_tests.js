@@ -3,9 +3,11 @@ require('../extension/redactionMerger.js');
 require('../extension/indiaPiiValidator.js');
 require('../extension/geometry.js');
 require('../extension/qrDetector.js');
+require('../extension/agentWorkflow.js');
 const redaction = globalThis.PrivvyRedaction;
 const india = globalThis.PrivvyIndiaPii;
 const qrDetector = globalThis.PrivvyQrDetector;
+const workflow = globalThis.PrivvyAgentWorkflow;
 
 function testQrMask() {
   const qr = redaction.makeBoundingBox({ id: 'qr_1', category: 'QR_BARCODE', label: '[QR_REDACTED]', x: 2, y: 3, width: 20, height: 20 }, 0, 'VISUAL');
@@ -81,5 +83,14 @@ function testQrPixelBlackoutKeepsNearbyPixels() {
   assert.equal(pixels[(1 * 8 + 1) * 4], 255);
 }
 
-testQrMask(); testQrContentNeverSerializes(); testShadowPayloadSanitization(); testIndiaValidators(); testInactiveMasksAreNotActive(); testQrVisualPrecisionFilter(); testVerifiedDecoderMetadataNeverIncludesRawValue(); testFallbackPointRectAndDedupe(); testQrPixelBlackoutKeepsNearbyPixels();
+function testAgentTasksAndActions() {
+  assert.equal(workflow.taskById('find_download').mode, 'highlight');
+  assert.equal(workflow.normalizeTask('Find the download button').id, 'find_download');
+  assert.equal(workflow.normalizeTask('legacy form task').id, 'prepare_form');
+  assert(workflow.ALLOWED_ACTIONS.includes('ANSWER'));
+  assert(workflow.ALLOWED_ACTIONS.includes('HIGHLIGHT'));
+  assert(workflow.ALLOWED_ACTIONS.includes('REQUEST_RESCAN'));
+}
+
+testQrMask(); testQrContentNeverSerializes(); testShadowPayloadSanitization(); testIndiaValidators(); testInactiveMasksAreNotActive(); testQrVisualPrecisionFilter(); testVerifiedDecoderMetadataNeverIncludesRawValue(); testFallbackPointRectAndDedupe(); testQrPixelBlackoutKeepsNearbyPixels(); testAgentTasksAndActions();
 console.log('Advanced redaction tests passed.');
