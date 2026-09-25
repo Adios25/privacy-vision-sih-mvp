@@ -13,7 +13,13 @@
     { category: 'IFSC_LIKE', regex: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, validator: (value) => globalThis.PrivvyIndiaPii?.validIfsc(value) !== false },
     { category: 'PASSPORT', regex: /\b[A-Z][0-9]{7}\b/g },
     { category: 'CARD_LIKE', regex: /(?<!\d)(?:\d{13,19}|(?:\d{3,6}[ -]){2,5}\d{3,6})(?!\d)/g, validator: validPaymentCard },
-    { category: 'IP_ADDRESS', regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g }
+    { category: 'IP_ADDRESS', regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g },
+    { category: 'VOTER_ID', regex: /\b[A-Z]{3}\d{7}\b/g },
+    { category: 'GSTIN', regex: /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]\b/gi },
+    { category: 'DL_NUMBER', regex: /\b[A-Z]{2}[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{7}\b/gi },
+    { category: 'UPI_ID', regex: /\b[A-Z0-9.\-_]{2,256}@[A-Z]{2,64}\b/gi },
+    { category: 'BANK_ACCOUNT', regex: /\b\d{9,18}\b/g },
+    { category: 'VEHICLE_REG', regex: /\b[A-Z]{2}[\s-]?\d{1,2}[\s-]?[A-Z]{1,3}[\s-]?\d{4}\b/gi }
   ];
 
   const PURPOSE_RULES = [
@@ -24,7 +30,13 @@
     ['dob', 'DOB', /(date of birth|birth date|\bdob\b|birthday)/],
     ['address', 'ADDRESS', /(address|street|postal|residential)/],
     ['card', 'CARD_LIKE', /(card number|credit card|debit card|payment card)/],
-    ['name', 'PERSON', /(full name|applicant name|patient name|candidate name|your name)/]
+    ['name', 'PERSON', /(full name|applicant name|patient name|candidate name|your name)/],
+    ['voter_id', 'VOTER_ID', /(voter id|epic number|election card)/],
+    ['gstin', 'GSTIN', /(gstin|gst number|gstin number)/],
+    ['dl_number', 'DL_NUMBER', /(driving licen[sc]e|dl number|licence number)/],
+    ['upi_id', 'UPI_ID', /(upi|vpa|upi id|payment address)/],
+    ['bank_account', 'BANK_ACCOUNT', /(account number|bank account|a\/c no)/],
+    ['vehicle_reg', 'VEHICLE_REG', /(vehicle number|registration number|reg no|vehicle reg)/]
   ];
 
   function validPaymentCard(value) {
@@ -137,11 +149,11 @@
   function sanitizeControlValue(element, purposeInfo, counters, rawTerms) {
     const value = String(element.value || '');
     if (!value.trim()) return '';
-    rawTerms.add(value);
-    if (purposeInfo) return token(purposeInfo.category, counters);
-    const patterned = sanitizePatterns(value, counters, rawTerms);
-    if (patterned !== value) return patterned;
-    return token('USER_INPUT', counters);
+    if (purposeInfo) {
+      rawTerms.add(value);
+      return token(purposeInfo.category, counters);
+    }
+    return sanitizePatterns(value, counters, rawTerms);
   }
 
   function semanticTextContext(element) {
@@ -202,11 +214,11 @@
       let value = '';
       if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
         value = sanitizeControlValue(element, purposeInfo, counters, rawTerms);
-        if (element.value.trim()) {
+        if (element.value.trim() && purposeInfo) {
           detections.push({
-            category: purposeInfo?.category || 'USER_INPUT',
+            category: purposeInfo.category,
             source: 'editable-value',
-            confidence: purposeInfo ? 0.96 : 1,
+            confidence: 0.96,
             coordinateSpace: 'css-viewport',
             rect
           });
@@ -346,6 +358,15 @@
     };
   }
 
+  function scrollMetrics() {
+    return {
+      x: window.scrollX,
+      y: window.scrollY,
+      maxY: Math.max(0, document.documentElement.scrollHeight - innerHeight),
+      viewportHeight: innerHeight
+    };
+  }
+
   function setNativeValue(element, value) {
     const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
@@ -457,6 +478,11 @@
     try {
       if (message?.type === 'PV_PING') sendResponse({ ok: true, contentVersion: CONTENT_VERSION });
       else if (message?.type === 'PV_SCAN_PAGE') sendResponse({ ok: true, data: scanPage() });
+      else if (message?.type === 'PV_GET_SCROLL_METRICS') sendResponse({ ok: true, data: scrollMetrics() });
+      else if (message?.type === 'PV_SCROLL_TO') {
+        window.scrollTo({ left: window.scrollX, top: Math.max(0, Math.min(scrollMetrics().maxY, Number(message.y) || 0)), behavior: 'auto' });
+        sendResponse({ ok: true, data: scrollMetrics() });
+      }
       else if (message?.type === 'PV_SHOW_OVERLAY') {
         if (!globalThis.PrivvyOverlayCanvas) throw new Error('Interactive overlay is unavailable; scan the page again.');
         sendResponse(globalThis.PrivvyOverlayCanvas.start({ masks: message.masks || [] }));

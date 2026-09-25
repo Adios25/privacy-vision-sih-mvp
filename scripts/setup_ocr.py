@@ -34,7 +34,8 @@ def install_dependencies() -> None:
             "--no-save",
             "--no-package-lock",
             f"tesseract.js@{TESSERACT_VERSION}",
-            f"@tesseract.js-data/eng@{LANGUAGE_VERSION}",
+        f"@tesseract.js-data/eng@{LANGUAGE_VERSION}",
+        f"@tesseract.js-data/hin@{LANGUAGE_VERSION}",
         ]
     )
 
@@ -53,11 +54,13 @@ def package_assets() -> list[Path]:
     tesseract_root = NODE_MODULES / "tesseract.js"
     core_root = NODE_MODULES / "tesseract.js-core"
     language_root = NODE_MODULES / "@tesseract.js-data" / "eng" / "4.0.0"
+    hindi_language_root = NODE_MODULES / "@tesseract.js-data" / "hin" / "4.0.0"
 
     copied = [
         copy_file(tesseract_root / "dist" / "tesseract.min.js"),
         copy_file(tesseract_root / "dist" / "worker.min.js", "tesseract.worker.min.js"),
         copy_file(language_root / "eng.traineddata.gz"),
+        copy_file(hindi_language_root / "hin.traineddata.gz"),
     ]
     core_assets = sorted(core_root.glob("tesseract-core*.js")) + sorted(core_root.glob("tesseract-core*.wasm"))
     if not core_assets:
@@ -74,6 +77,7 @@ def validate_assets(paths: list[Path]) -> None:
         "tesseract.min.js",
         "tesseract.worker.min.js",
         "eng.traineddata.gz",
+        "hin.traineddata.gz",
         "tesseract-core.wasm.js",
         "tesseract-core.wasm",
     }

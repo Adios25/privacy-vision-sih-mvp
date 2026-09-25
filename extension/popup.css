@@ -79,11 +79,11 @@ button.ghost:hover:not(:disabled) { background: #f4f8f7; }
 .privacy-steps span[data-state="blocked"] { background: #fde8eb; color: var(--danger); }
 .privacy-steps span[data-state="blocked"]::before { content: "! "; font-weight: 900; }
 .privacy-gate p { margin: 8px 0 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
-.preview-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.preview-compare figure { min-width: 0; margin: 0; }
-.preview-compare figcaption { display: grid; gap: 1px; margin: 0 0 4px; color: var(--ink); font-size: 10px; font-weight: 750; }
-.preview-compare figcaption small { color: var(--muted); font-size: 8px; font-weight: 650; }
-.preview-compare canvas { width: 100%; max-height: 210px; border: 1px solid var(--border); border-radius: 8px; background: #dfe7e4; object-fit: contain; }
+.preview-section { margin-top: 10px; }
+.preview-section figure { min-width: 0; margin: 0; }
+.preview-section figcaption { display: grid; gap: 1px; margin: 0 0 4px; color: var(--ink); font-size: 10px; font-weight: 750; }
+.preview-section figcaption small { color: var(--muted); font-size: 8px; font-weight: 650; }
+.preview-section canvas { width: 100%; max-height: 210px; border: 1px solid var(--border); border-radius: 8px; background: #dfe7e4; object-fit: contain; }
 .review-panel { margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #f7fbf9; }
 .review-counters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; color: var(--muted); font-size: 10px; }
 .review-counters span { padding: 4px 6px; border-radius: 5px; background: #e7f0ec; }

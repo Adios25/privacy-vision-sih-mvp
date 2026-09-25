@@ -23,6 +23,19 @@ Modern Vision-Language Models (VLMs) and browser automation agents offer immense
 5. **Local Profile Resolution:** Real user data resides strictly in browser-local extension storage. Token resolution occurs strictly on-device inside the DOM.
 6. **Human-in-the-Loop Safety:** Critical high-risk actions (such as submissions) require explicit, separate user approval with **Confirm** and **Decline** controls.
 
+### Recent implementation updates
+
+- Restored the production visual detector to the pretrained COCO `yolo11n.onnx` model. It runs through ONNX Runtime WebGPU with automatic WASM fallback and continues to detect faces locally.
+- Kept identity-document protection OCR-first. A custom Aadhaar/PAN YOLO experiment was evaluated, then removed from the active product path because the small document dataset reduced reliability.
+- Added multi-pass local OCR: native resolution plus enlarged grayscale/contrast processing. Duplicate OCR boxes are merged before redaction.
+- Added bounded multi-frame scroll capture. Privvy samples long pages, runs OCR per viewport, and restores the user's original scroll position.
+- Added Hindi OCR support with local `hin.traineddata.gz`, English + Hindi Tesseract recognition, Devanagari digit normalization, and Hindi name/address/DOB/Aadhaar/PAN label rules.
+- Added a local Ollama WebSocket bridge at `ws://127.0.0.1:8788/agent/loop` for `qwen2.5vl:3b`. Only the approved sanitized image and DOM graph are sent.
+- Added ordered Ollama action plans. The extension validates model-provided target IDs and maps `TYPE`, `CLICK`, and `COMPLETE` into the existing safe execution protocol.
+- Added WebSocket CSP permission and a local VLM URL setting in the extension.
+- Fixed data-URI screenshot decoding by allowing `data:` in the extension's `connect-src` policy.
+- Added bridge smoke testing and rebuilt Chrome/Firefox distribution artifacts.
+
 ---
 
 ## 🏛️ System Architecture
@@ -132,7 +145,10 @@ privacy-vision-sih-mvp/
 │   └── ocr.js                     # Local OCR PII extraction and bounding-box mapping
 │
 ├── server/                        # Backend planner & test portal server
-│   ├── server.py                  # Zero-dependency Python server (HTTP, Ollama/OpenAI VLM, metrics)
+│   ├── server.py                  # Zero-dependency HTTP planner server
+│   ├── vlm_bridge.py              # FastAPI WebSocket bridge for local Ollama/Qwen2.5-VL
+│   ├── requirements-vlm.txt       # FastAPI, Uvicorn, and OpenAI-compatible client dependencies
+│   ├── OLLAMA_CODEX_INSTRUCTIONS.md # Ollama bridge setup instructions
 │   └── CONFIGURATION.md           # Limits, provider settings, and production guidance
 │
 ├── test-website/                  # Standalone synthetic institutional test portal
@@ -143,7 +159,7 @@ privacy-vision-sih-mvp/
 ├── scripts/                       # Setup and packaging utilities
 │   ├── package_extensions.py      # Builds unpacked dist/ folders and distributable ZIPs
 │   ├── setup_yolo_ort.py          # Packages ONNX Runtime and prepares YOLO weights
-│   └── setup_ocr.py               # Packages Tesseract worker, cores, and English data
+│   └── setup_ocr.py               # Packages Tesseract worker, cores, English, and Hindi data
 │
 ├── tests/                         # Automated verification & test suite
 │   └── run_tests.py               # Comprehensive unit & integration test runner
@@ -299,6 +315,25 @@ Run open multimodal vision models locally on your GPU (e.g., Qwen 2.5 VL, Llama 
    ```
    *(Optionally specify `PV_OLLAMA_URL=http://127.0.0.1:11434` if Ollama is running on a non-default port)*.
 
+### Mode 2b: Extension WebSocket VLM Bridge
+
+The extension's **Plan with server** action uses the local FastAPI bridge for real-time Ollama planning:
+
+```powershell
+python -m pip install -r server/requirements-vlm.txt
+python server/vlm_bridge.py
+```
+
+Defaults:
+
+```text
+Ollama:  http://127.0.0.1:11434/v1
+Model:   qwen2.5vl:3b
+Bridge:  ws://127.0.0.1:8788/agent/loop
+```
+
+Reload `dist/chrome` in `chrome://extensions`, scan a page, approve the redactions, enable sanitized server context, and choose **Plan with server**. The bridge returns an ordered action list; the extension rejects invented DOM target IDs before execution.
+
 ### Mode 3: Cloud / OpenAI-Compatible Multimodal API
 Connect to any OpenAI-compatible multimodal endpoint (OpenAI GPT-4o, Groq, vLLM, LiteLLM, etc.):
 
@@ -386,9 +421,12 @@ Privvy performs local visual perception inside the browser using **YOLO11n** run
 Privvy runs Tesseract.js 7 entirely inside the extension after screenshot capture and before an outbound payload is created. The worker, matching WASM cores, and English language data are packaged locally, so OCR does not call a CDN.
 
 - OCR words are grouped into lines so spaced phone, Aadhaar-like, and card values can be matched as one region.
-- Email, phone, Aadhaar-like, PAN-like, passport, card-like, IP, and date patterns are detected.
-- Labelled name, address, date-of-birth, passport, and Aadhaar fields are detected from image text.
+- OCR runs in English + Hindi locally. A second enlarged grayscale/contrast pass improves small image text.
+- Devanagari digits are normalized for Indian ID/date matching without storing the original OCR text.
+- Email, phone, Aadhaar-like, PAN-like, passport, card-like, IP, date, Voter ID, GSTIN, driving licence, UPI, bank-account, and vehicle-registration patterns are detected.
+- English and Hindi labelled name, address, date-of-birth, passport, Aadhaar, and PAN fields are detected from image text.
 - OCR image coordinates are converted to CSS viewport coordinates before masks are merged with DOM and YOLO detections.
+- Long pages are sampled through bounded scroll/multi-frame capture; the original scroll position is restored after scanning.
 - Recognized raw terms remain ephemeral and are used only by the local leak guard; they are excluded from payload and session storage.
 - OCR failure blocks payload creation rather than allowing an insufficiently inspected screenshot to leave the extension.
 
@@ -399,7 +437,7 @@ Privvy runs Tesseract.js 7 entirely inside the extension after screenshot captur
 - **Deterministic Pattern Scope:** Text detection uses rule-based heuristics, DOM accessibility semantics, and regular expressions rather than an in-browser heavy LLM NER model.
 - **YOLO Pre-trained Weights:** Pre-trained YOLO11n (COCO dataset) only detects standard COCO classes (e.g., `person`) and does not natively identify signatures, passports, or ID cards. The extension is architected to allow custom weights for these specialized classes to be plugged in without refactoring.
 - **Synthetic Portal Representation:** Standard weights will not detect CSS-drawn synthetic shapes representing face photos on the test portal. Test verification should use real photograph files containing people.
-- **OCR Scope:** OCR currently uses English language data and deterministic PII/label rules. Handwriting and unsupported scripts require additional local language data or specialized recognition models.
+- **OCR Scope:** Hindi support covers printed Devanagari text and deterministic PII/label rules. Handwriting, low-resolution text, and other regional scripts require additional language data or specialized recognition models.
 - **Controlled High-Risk Execution:** Full automated form submission is deliberately gated behind explicit user confirmation and restricted to authenticated local test origins (`127.0.0.1`, `localhost`, `0.0.0.0`).
 - **Meaning of "Leak Check Passed":** The leak check confirms that no locally indexed raw terms appear in the outbound structured payload; it is an active security assertion rather than a claim of absolute mathematical impossibility of re-identification.
 

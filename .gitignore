@@ -52,3 +52,11 @@ extension/ort.*
 extension/ort-*
 extension/tesseract*
 extension/*.traineddata.gz
+
+# Local ML data, model caches, and test artifacts
+training/
+server/.env
+server/__pycache__/
+tests/__pycache__/
+*.safetensors
+*.gguf

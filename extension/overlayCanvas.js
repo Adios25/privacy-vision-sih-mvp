@@ -20,7 +20,7 @@
       for (const mask of masks) {
         context.strokeStyle = mask.active ? '#ff4567' : '#9aa5a2'; context.fillStyle = mask.active ? 'rgba(255,69,103,.18)' : 'rgba(154,165,162,.08)';
         context.lineWidth = 2; context.setLineDash(mask.active ? [] : [5, 4]); context.fillRect(mask.x, mask.y, mask.width, mask.height); context.strokeRect(mask.x, mask.y, mask.width, mask.height); context.setLineDash([]);
-        context.fillStyle = mask.active ? '#ff4567' : '#9aa5a2'; context.font = '12px system-ui'; context.fillText(mask.active ? mask.label : 'Enable', mask.x + 4, Math.max(14, mask.y + 14));
+        context.fillStyle = mask.active ? '#ff4567' : '#9aa5a2'; context.font = '700 11px system-ui'; context.fillText(mask.active ? String(masks.indexOf(mask) + 1) : 'Off', mask.x + 4, Math.max(14, mask.y + 14));
       }
       if (pending) { context.strokeStyle = '#42e6b1'; context.setLineDash([4, 3]); context.strokeRect(pending.x, pending.y, pending.width, pending.height); context.setLineDash([]); }
     };

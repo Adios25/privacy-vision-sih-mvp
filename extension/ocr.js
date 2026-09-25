@@ -7,7 +7,13 @@
     { category: 'PASSPORT', regex: /\b[A-Z][0-9]{7}\b/gi },
     { category: 'CARD_LIKE', regex: /(?<!\d)(?:\d{13,19}|(?:\d{3,6}[ -]){2,5}\d{3,6})(?!\d)/g, validator: validPaymentCard },
     { category: 'IP_ADDRESS', regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g },
-    { category: 'DOB', regex: /\b(?:0?[1-9]|[12]\d|3[01])[\/.\-](?:0?[1-9]|1[0-2])[\/.\-](?:19|20)\d{2}\b/g }
+    { category: 'DOB', regex: /\b(?:0?[1-9]|[12]\d|3[01])[\/\.\-](?:0?[1-9]|1[0-2])[\/\.\-](?:19|20)\d{2}\b/g },
+    { category: 'VOTER_ID', regex: /\b[A-Z]{3}\d{7}\b/gi },
+    { category: 'GSTIN', regex: /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]\b/gi },
+    { category: 'DL_NUMBER', regex: /\b[A-Z]{2}[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{7}\b/gi },
+    { category: 'UPI_ID', regex: /\b[A-Z0-9.\-_]{2,256}@[A-Z]{2,64}\b/gi },
+    { category: 'BANK_ACCOUNT', regex: /\b\d{9,18}\b/g },
+    { category: 'VEHICLE_REG', regex: /\b[A-Z]{2}[\s-]?\d{1,2}[\s-]?[A-Z]{1,3}[\s-]?\d{4}\b/gi }
   ];
 
   const LABEL_VALUE_PATTERNS = [
@@ -16,8 +22,24 @@
     { category: 'DOB', regex: /\b(?:date\s+of\s+birth|birth\s+date|dob)(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
     { category: 'PASSPORT', regex: /\b(?:passport(?:\s+number|\s+no\.?)?)(?:\s*:\s*|\s+-\s+)(.{2,40})$/i },
     { category: 'CARD_LIKE', regex: /\b(?:card(?:\s+number|\s+no\.?)?|credit\s+card|debit\s+card)(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
-    { category: 'AADHAAR_LIKE', regex: /\b(?:aadhaar|aadhar)(?:\s+number|\s+no\.?)?(?:\s*:\s*|\s+-\s+)(.{4,40})$/i }
+    { category: 'AADHAAR_LIKE', regex: /\b(?:aadhaar|aadhar)(?:\s+number|\s+no\.?)?(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
+    { category: 'VOTER_ID', regex: /\b(?:voter\s+id|epic\s+number|election\s+card)(?:\s*:\s*|\s+-\s+)(.{2,40})$/i },
+    { category: 'GSTIN', regex: /\b(?:gstin|gst\s+number)(?:\s*:\s*|\s+-\s+)(.{4,20})$/i },
+    { category: 'DL_NUMBER', regex: /\b(?:driving\s+licen[sc]e|dl\s+number|licence\s+number)(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
+    { category: 'UPI_ID', regex: /\b(?:upi|vpa|upi\s+id|payment\s+address)(?:\s*:\s*|\s+-\s+)(.{4,60})$/i },
+    { category: 'BANK_ACCOUNT', regex: /\b(?:account\s+number|bank\s+account|a\/c\s+no)(?:\s*:\s*|\s+-\s+)(.{8,20})$/i },
+    { category: 'VEHICLE_REG', regex: /\b(?:vehicle\s+number|registration\s+number|reg\s+no)(?:\s*:\s*|\s+-\s+)(.{4,20})$/i }
+    ,{ category: 'PERSON', regex: /(?:नाम|पूरा\s+नाम|आवेदक\s+का\s+नाम|पिता\s+का\s+नाम)\s*(?:[:\-]\s*|है\s+)(.{2,80})$/u }
+    ,{ category: 'ADDRESS', regex: /(?:पता|स्थायी\s+पता|निवास\s+का\s+पता)\s*(?:[:\-]\s*|है\s+)(.{4,160})$/u }
+    ,{ category: 'DOB', regex: /(?:जन्म\s+तिथि|जन्म\s+दिनांक|जन्म)\s*(?:[:\-]\s*|है\s+)(.{4,40})$/u }
+    ,{ category: 'AADHAAR_LIKE', regex: /(?:आधार\s+(?:संख्या|नंबर|क्रमांक))\s*(?:[:\-]\s*|है\s+)(.{4,40})$/u }
+    ,{ category: 'PAN_LIKE', regex: /(?:पैन\s+(?:संख्या|नंबर|क्रमांक))\s*(?:[:\-]\s*|है\s+)(.{4,20})$/u }
   ];
+
+  const DEVANAGARI_DIGITS = String.fromCodePoint(...Array.from('०१२३४५६७८९').map((digit) => digit.codePointAt(0)));
+  function normalizeIndicDigits(value) {
+    return String(value || '').replace(/[०-९]/gu, (digit) => String(DEVANAGARI_DIGITS.indexOf(digit)));
+  }
 
   function validPaymentCard(value) {
     const digits = String(value).replace(/\D/g, '');
@@ -113,7 +135,7 @@
 
     for (const words of wordsFromBlocks(blocks)) {
       const line = lineIndex(words);
-      for (const match of collectMatches(line.text)) {
+      for (const match of collectMatches(normalizeIndicDigits(line.text))) {
         const region = unionWordBoxes(line.indexed, match.start, match.end);
         if (!region) continue;
         rawTerms.add(match.value);
@@ -158,8 +180,8 @@
       const getUrl = globalThis.chrome?.runtime?.getURL || globalThis.browser?.runtime?.getURL;
       if (!getUrl) throw new Error('Extension resource URLs are unavailable.');
       const baseUrl = getUrl.call(globalThis.chrome?.runtime || globalThis.browser.runtime, '');
-      return globalThis.Tesseract.createWorker('eng', 1, {
-        workerPath: `${baseUrl}tesseract.worker.min.js`,
+      return globalThis.Tesseract.createWorker('eng+hin', 1, {
+        workerPath: `${baseUrl}tesseract-worker.min.js`,
         corePath: baseUrl,
         langPath: baseUrl,
         workerBlobURL: false,
@@ -171,16 +193,64 @@
       const started = performance.now();
       const image = await createImageBitmap(await (await fetch(dataUrl)).blob());
       const imageSize = { width: image.width, height: image.height };
-      image.close();
       const worker = await this.initialize();
-      const result = await worker.recognize(dataUrl, {}, { text: true, blocks: true });
-      const sensitive = extractSensitiveOcr(result.data.blocks, imageSize, viewport);
+      const passes = [{ source: dataUrl, scale: 1, label: 'native' }];
+      const upscale = Math.min(2, 1600 / Math.max(image.width, image.height));
+      if (upscale > 1.05) {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(image.width * upscale);
+        canvas.height = Math.round(image.height * upscale);
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.filter = 'grayscale(1) contrast(1.25)';
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        passes.push({ source: canvas.toDataURL('image/png'), scale: upscale, label: 'upscaled' });
+        canvas.width = 1;
+        canvas.height = 1;
+      }
+      image.close();
+
+      const detections = [];
+      const rawTerms = new Set();
+      for (const pass of passes) {
+        const result = await worker.recognize(pass.source, {}, { text: true, blocks: true });
+        const passSize = { width: imageSize.width * pass.scale, height: imageSize.height * pass.scale };
+        const sensitive = extractSensitiveOcr(result.data.blocks, passSize, viewport);
+        for (const detection of sensitive.detections) {
+          detection.rect.x /= pass.scale;
+          detection.rect.y /= pass.scale;
+          detection.rect.width /= pass.scale;
+          detection.rect.height /= pass.scale;
+          detection.source = `local-ocr-${pass.label}`;
+          detections.push(detection);
+        }
+        for (const term of sensitive.rawTerms) rawTerms.add(term);
+      }
+
+      const unique = detections.filter((item, index, items) => !items.some((other, otherIndex) => (
+        otherIndex < index && other.category === item.category
+          && overlap(other.rect, item.rect) > 0.55
+          && other.confidence >= item.confidence
+      )));
       return {
-        ...sensitive,
-        engine: 'Tesseract.js 7 (local WASM)',
+        detections: unique,
+        rawTerms: Array.from(rawTerms),
+        engine: 'Tesseract.js 7 (English + Hindi, local WASM)',
+        passes: passes.length,
         ms: Math.round((performance.now() - started) * 10) / 10
       };
     }
+  }
+
+  function overlap(a, b) {
+    const left = Math.max(a.x, b.x);
+    const top = Math.max(a.y, b.y);
+    const right = Math.min(a.x + a.width, b.x + b.width);
+    const bottom = Math.min(a.y + a.height, b.y + b.height);
+    const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
+    const union = a.width * a.height + b.width * b.height - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 
   globalThis.PrivvyOCR = { LocalOcrDetector, extractSensitiveOcr, collectMatches };

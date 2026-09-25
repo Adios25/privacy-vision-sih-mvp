@@ -55,17 +55,7 @@
         <p id="agent-progress" class="agent-progress" aria-live="polite">Task: Prepare empty form fields · Status: Idle</p>
         <div class="action-row"><button id="toggle-overlay" class="ghost" type="button" disabled>Toggle Interactive Overlay</button><button id="approve-redactions" class="primary" type="button" disabled>Confirm &amp; Generate Plan</button></div>
       </section>
-      <div class="audit-panel" aria-label="Local egress audit">
-        <div class="debug-title">Local Egress Audit</div>
-        <div class="debug-row"><span>Active masks:</span><strong id="audit-active-masks">—</strong></div>
-        <div class="debug-row"><span>Disabled masks:</span><strong id="audit-disabled-masks">—</strong></div>
-        <div class="debug-row"><span>QR/barcode masks:</span><strong id="audit-qr-masks">—</strong></div>
-        <div class="debug-row"><span>Shadow DOM detections:</span><strong id="audit-shadow-masks">—</strong></div>
-        <div class="debug-row"><span>Structured matches:</span><strong id="audit-structured-matches">—</strong></div>
-        <div class="debug-row"><span>Payload hash:</span><strong id="audit-payload-hash">—</strong></div>
-      </div>
-      <div class="preview-compare" aria-label="Local screenshot comparison">
-        <figure><figcaption>Original screen <small>Local only</small></figcaption><canvas id="original-preview" aria-label="Original screenshot retained locally"></canvas></figure>
+      <div class="preview-section">
         <figure><figcaption>Sanitized screen <small>Eligible for planning</small></figcaption><canvas id="preview" aria-label="Locally redacted screenshot preview"></canvas></figure>
       </div>
       <div class="metric-grid">
@@ -132,6 +122,7 @@
       <summary>Local profile and server settings</summary>
       <form id="settings-form" novalidate>
         <label>Planner server<input name="serverUrl" type="url" value="http://127.0.0.1:8787"></label>
+        <label>Local VLM WebSocket<input name="vlmWsUrl" type="url" value="ws://127.0.0.1:8788/agent/loop"></label>
         <label class="check-row"><input name="localOnly" type="checkbox"> Local-only mode</label>
         <label>Full name<input name="name" autocomplete="name"></label>
         <label>Email<input name="email" type="email" autocomplete="email"></label>
@@ -146,7 +137,7 @@
     </details>
   </main>
 
-  <script src="ort.wasm.min.js"></script>
+  <script src="ort.all.min.js"></script>
   <script src="tesseract.min.js"></script>
   <script src="ocr.js"></script>
   <script src="geometry.js"></script>

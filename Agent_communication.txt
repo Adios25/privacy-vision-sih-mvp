@@ -1,0 +1,25 @@
+Act as an expert Python developer. Write a FastAPI application that acts as a WebSocket bridge between a browser extension and a local Vision-Language Model (vLLM running Qwen2-VL). 
+
+Implement the following exact requirements:
+
+1. Setup:
+- Initialize a FastAPI app.
+- Initialize an `AsyncOpenAI` client pointing to `base_url="http://localhost:8000/v1"` with `api_key="EMPTY"`.
+
+2. WebSocket Endpoint (`/agent/loop`):
+- Accept the WebSocket connection.
+- Continuously listen for text messages and parse them as JSON.
+- Extract `image_base64` and `dom_elements` from the JSON payload.
+- If `image_base64` starts with a data URI prefix (e.g., `data:image/jpeg;base64,`), strip it off so only the raw base64 string remains.
+
+3. LLM Integration:
+- Construct an OpenAI-compatible messages array.
+- System role: "You are a browser agent. Choose an action (TYPE, CLICK, COMPLETE) based on the image and the DOM JSON. Respond in strict JSON."
+- User role: Include a text block with the goal and the stringified `dom_elements`, and an `image_url` block formatting the base64 string as `data:image/jpeg;base64,{image_data}`.
+- Await `client.chat.completions.create` using the model `"Qwen/Qwen2-VL-7B-Instruct"`. Enforce JSON output by passing `response_format={"type": "json_object"}`.
+
+4. Response & Error Handling:
+- Parse the LLM's JSON string response and send it back over the WebSocket using `send_json()`.
+- Wrap the loop in a try/except block to gracefully catch and log `WebSocketDisconnect`.
+
+Output the complete, runnable Python script and the required pip dependencies.

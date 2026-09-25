@@ -10,6 +10,7 @@ const $ = (selector) => document.querySelector(selector);
 const PROFILE_VERSION = 2;
 const SESSION_VERSION = 5;
 const CONTENT_VERSION = '1.3.5';
+const YOLO_MODEL_FILE = 'yolo11n.onnx';
 const workflow = globalThis.PrivvyAgentWorkflow;
 const MAX_AGENT_STEPS = 3;
 
@@ -99,7 +100,10 @@ async function discardPersistedSession() {
 }
 
 async function activeTab() {
-  const tabs = await promiseCall(api.tabs, 'query', { active: true, currentWindow: true });
+  let tabs = await promiseCall(api.tabs, 'query', { active: true, lastFocusedWindow: true }).catch(() => []);
+  if (!Array.isArray(tabs) || !tabs.length) {
+    tabs = await promiseCall(api.tabs, 'query', { active: true, currentWindow: true }).catch(() => []);
+  }
   const tab = tabs?.[0];
   if (!tab?.id || !/^https?:|^file:/.test(tab.url || '')) throw new Error('Open a regular website before scanning.');
   if (state.tabId !== null && state.tabId !== tab.id && state.scan) {
@@ -154,6 +158,32 @@ async function sendToTab(message) {
   const tab = await activeTab();
   await ensureContentScript(tab.id);
   return promiseCall(api.tabs, 'sendMessage', tab.id, message);
+}
+
+function waitForFrame() { return new Promise((resolve) => setTimeout(resolve, 120)); }
+
+async function captureScrollFrames(generation) {
+  const initial = await sendToTab({ type: 'PV_GET_SCROLL_METRICS' });
+  if (!initial?.ok) return { frames: [], initialY: 0 };
+  const startY = Number(initial.data?.y) || 0;
+  const maxY = Number(initial.data?.maxY) || 0;
+  const height = Number(initial.data?.viewportHeight) || 1;
+  const positions = Array.from(new Set([startY, ...Array.from({ length: 3 }, (_, index) => Math.min(maxY, index * height * 0.85)), maxY]));
+  const frames = [];
+  try {
+    for (const y of positions) {
+      assertCurrentGeneration(generation);
+      const moved = await sendToTab({ type: 'PV_SCROLL_TO', y });
+      if (!moved?.ok) continue;
+      await waitForFrame();
+      const capture = await promiseCall(api.runtime, 'sendMessage', { type: 'PV_CAPTURE_VISIBLE_TAB', tabId: state.tabId, windowId: state.windowId });
+      if (capture?.ok) frames.push({ dataUrl: capture.dataUrl, y: Number(moved.data?.y) || y });
+    }
+  } finally {
+    await sendToTab({ type: 'PV_SCROLL_TO', y: startY }).catch(() => {});
+    await waitForFrame();
+  }
+  return { frames, initialY: startY };
 }
 
 function normalizedIncludes(haystack, needle) {
@@ -233,6 +263,11 @@ class VisualDetector {
 
   async _doInitialize() {
     try {
+      const ort = globalThis.ort || (typeof window !== 'undefined' ? window.ort : null);
+      if (!ort) {
+        throw new Error('ONNX Runtime (ort) script failed to load into extension context.');
+      }
+
       // Step 1: Configure WASM paths using chrome.runtime.getURL so the extension
       // can resolve its bundled WASM binary correctly regardless of context.
       // numThreads=1 avoids SharedArrayBuffer / crossOriginIsolated requirement
@@ -246,17 +281,25 @@ class VisualDetector {
 
       // Step 2: Resolve the model URL — must be an extension URL, not a bare path
       const modelUrl = (typeof chrome !== 'undefined' && chrome.runtime?.getURL)
-        ? chrome.runtime.getURL('yolo11n.onnx')
-        : './yolo11n.onnx';
+        ? chrome.runtime.getURL(YOLO_MODEL_FILE)
+        : `./${YOLO_MODEL_FILE}`;
 
-      // The bundled runtime is WASM-only. Do not request WebGPU from it: that
-      // provider is not registered and produces a noisy, avoidable warning.
-      this.session = await ort.InferenceSession.create(modelUrl, {
-        executionProviders: ['wasm']
-      });
-      this.backend = 'WASM';
+      // Try WebGPU first for GPU acceleration; fall back to WASM silently.
+      let usedBackend = 'WASM';
+      try {
+        this.session = await ort.InferenceSession.create(modelUrl, {
+          executionProviders: ['webgpu']
+        });
+        usedBackend = 'WebGPU';
+        console.log('[Privvy YOLO] Initialized on WebGPU backend');
+      } catch (_gpuErr) {
+        this.session = await ort.InferenceSession.create(modelUrl, {
+          executionProviders: ['wasm']
+        });
+        console.log('[Privvy YOLO] Initialized on WASM backend (WebGPU unavailable)');
+      }
+      this.backend = usedBackend;
       this.initialized = true;
-      console.log('[Privvy YOLO] Initialized on WASM backend');
     } catch (err) {
       this._initPromise = null; // Allow retry on next call
       console.error('[Privvy YOLO] All backends failed:', err);
@@ -308,8 +351,9 @@ class VisualDetector {
 
     const postprocessStart = performance.now();
     const numBoxes = 8400;
-    const numClasses = 80;
     const cocoClasses = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"];
+    const classNames = cocoClasses;
+    const numClasses = 80;
 
     const candidates = [];
     for (let col = 0; col < numBoxes; col++) {
@@ -333,7 +377,7 @@ class VisualDetector {
 
         candidates.push({
           classId: maxClassId,
-          className: cocoClasses[maxClassId] || `class_${maxClassId}`,
+          className: classNames[maxClassId] || `class_${maxClassId}`,
           confidence: maxScore,
           bbox: [left, top, w, h]
         });
@@ -494,9 +538,10 @@ async function localOcrModel(dataUrl, viewport) {
   $('#ocr-detections').textContent = '—';
   try {
     const result = await ocrDetector.detect(dataUrl, viewport);
-    $('#ocr-engine').textContent = result.engine;
-    $('#ocr-latency').textContent = `${result.ms} ms`;
-    $('#ocr-detections').textContent = String(result.detections.length);
+    if (!result) throw new Error('OCR detector returned an empty response.');
+    $('#ocr-engine').textContent = result.engine || 'Tesseract.js 7 (local WASM)';
+    $('#ocr-latency').textContent = `${result.ms ?? 0} ms`;
+    $('#ocr-detections').textContent = String(result.detections?.length ?? 0);
     return result;
   } catch (error) {
     $('#ocr-engine').textContent = 'Error';
@@ -505,7 +550,7 @@ async function localOcrModel(dataUrl, viewport) {
     console.error('[Privvy OCR] Local recognition failed:', error);
     const message = error instanceof Error
       ? error.message
-      : typeof error === 'string'
+      : (typeof error === 'string' && error.trim())
         ? error
         : 'The local OCR engine returned an unknown startup error.';
     throw new Error(`Local OCR failed, so Privvy stopped before creating an outbound payload: ${message}`);
@@ -515,9 +560,6 @@ async function localOcrModel(dataUrl, viewport) {
 async function drawRedactedPreview(dataUrl, scan, detections) {
   const image = await createImageBitmap(await (await fetch(dataUrl)).blob());
   const canvas = $('#preview'); const ratio = Math.min(1, 780 / image.width);
-  const originalCanvas = $('#original-preview');
-  originalCanvas.width = Math.round(image.width * ratio); originalCanvas.height = Math.round(image.height * ratio);
-  originalCanvas.getContext('2d').drawImage(image, 0, 0, originalCanvas.width, originalCanvas.height);
   canvas.width = Math.round(image.width * ratio); canvas.height = Math.round(image.height * ratio);
   const context = canvas.getContext('2d'); context.drawImage(image, 0, 0, canvas.width, canvas.height);
   const imageSize = { width: image.width, height: image.height };
@@ -528,7 +570,6 @@ async function drawRedactedPreview(dataUrl, scan, detections) {
     const left = Math.max(0, x - padding); const top = Math.max(0, y - padding);
     const right = Math.min(canvas.width, x + width + padding); const bottom = Math.min(canvas.height, y + height + padding);
     context.fillStyle = detection.type === 'MANUAL' ? '#000000' : '#071a18'; context.fillRect(left, top, right - left, bottom - top);
-    if (width > 32 && height > 12) { context.fillStyle = '#42e6b1'; context.font = '700 9px monospace'; context.fillText(`<${detection.category}>`, x + 3, y + 3); }
   });
   image.close();
   return canvas.toDataURL('image/jpeg', .78);
@@ -596,13 +637,7 @@ async function updatePayloadAudit(payload) {
 }
 
 function renderAudit() {
-  const audit = state.payload?.audit; if (!audit) return;
-  $('#audit-active-masks').textContent = String(audit.activeMasks);
-  $('#audit-disabled-masks').textContent = String(audit.disabledMasks);
-  $('#audit-qr-masks').textContent = String(audit.qrMasks);
-  $('#audit-shadow-masks').textContent = String(audit.shadowDomDetections);
-  $('#audit-structured-matches').textContent = String(audit.structuredPayloadMatches);
-  $('#audit-payload-hash').textContent = audit.payloadHash;
+  // Audit panel removed from UI to declutter frontend.
 }
 
 function renderPrivacyGate() {
@@ -725,20 +760,33 @@ async function scanPage() {
     const response = await sendToTab({ type: 'PV_SCAN_PAGE' });
     assertCurrentGeneration(generation);
     if (!response?.ok) throw new Error(response?.error || 'Page scan failed.');
-    const capture = await promiseCall(api.runtime, 'sendMessage', {
-      type: 'PV_CAPTURE_VISIBLE_TAB', tabId: state.tabId, windowId: state.windowId
-    });
-    assertCurrentGeneration(generation);
-    if (!capture?.ok) throw new Error(capture?.error || 'Visible-tab capture failed.');
+    const frameSet = await captureScrollFrames(generation);
+    const captureFrame = frameSet.frames.find((frame) => frame.y === frameSet.initialY) || frameSet.frames[0];
+    if (!captureFrame?.dataUrl) throw new Error('Visible-tab capture failed.');
+    const capture = { ok: true, dataUrl: captureFrame.dataUrl };
     const [vision, ocr, qr] = await Promise.all([
       localVisionModel(capture.dataUrl, response.data.viewport),
       localOcrModel(capture.dataUrl, response.data.viewport),
       globalThis.PrivvyQrDetector.detect(capture.dataUrl, response.data.viewport)
     ]);
     assertCurrentGeneration(generation);
+    const extraFrames = frameSet.frames.filter((frame) => frame !== captureFrame);
+    const extraOcr = await Promise.all(extraFrames.map((frame) => localOcrModel(frame.dataUrl, response.data.viewport)));
+    const extraDetections = [];
+    const extraTerms = new Set();
+    for (const [index, result] of extraOcr.entries()) {
+      const offsetY = extraFrames[index].y - frameSet.initialY;
+      for (const detection of result.detections || []) {
+        const rect = { ...detection.rect, y: detection.rect.y + offsetY };
+        if (rect.y + rect.height <= 0 || rect.y >= response.data.viewport.height) continue;
+        extraDetections.push({ ...detection, rect, source: 'local-ocr-scroll' });
+      }
+      for (const term of result.rawTerms || []) extraTerms.add(term);
+    }
     const filteredVisionDetections = PrivvyRedaction.filterVisualQrCandidates(vision.detections);
-    const detections = mergeDetections(response.data.detections, [...filteredVisionDetections, ...ocr.detections, ...qr.detections]);
-    const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms]));
+    const detections = mergeDetections(response.data.detections, [...filteredVisionDetections, ...ocr.detections, ...extraDetections, ...qr.detections]);
+    const rawTerms = Array.from(new Set([...(response.data.rawTerms || []), ...ocr.rawTerms, ...extraTerms]));
+    response.data.clientMetrics.scrollFrames = frameSet.frames.length;
     state.scan = response.data; state.captureDataUrl = capture.dataUrl; state.rawTerms = rawTerms;
     setPhase('sanitizing');
     state.redactionState = PrivvyRedaction.createRedactionState(detections);
@@ -791,6 +839,51 @@ function validateClientPlan(plan) {
   return plan;
 }
 
+function adaptVlmPlan(result, payload) {
+  const elements = payload?.page?.elements || [];
+  const validTargets = new Map(elements.map((element) => [String(element.id), element]));
+  const validPlaceholders = new Set(Object.values(placeholderByPurpose));
+  const candidates = Array.isArray(result?.actions) ? result.actions : [result];
+  const actions = candidates.map((item) => {
+    const action = String(item?.action || item?.type || '').toUpperCase();
+    const targetId = item?.target_id || item?.targetId || null;
+    const target = targetId ? validTargets.get(String(targetId)) : null;
+    if (action === 'CLICK' && target) return { source: 'ollama', type: 'CLICK', targetId: String(targetId), risk: 'MEDIUM', highRisk: false };
+    if (action === 'TYPE' && target) {
+      const placeholder = validPlaceholders.has(item?.placeholder) ? item.placeholder : placeholderByPurpose[target.purpose];
+      if (placeholder) return { source: 'ollama', type: 'TYPE_PLACEHOLDER', targetId: String(targetId), placeholder, risk: 'MEDIUM', highRisk: false };
+    }
+    if (action === 'COMPLETE') return { source: 'ollama', type: 'FINISH', message: item?.message || 'The local VLM completed the task.', risk: 'SAFE', highRisk: false };
+    return null;
+  }).filter(Boolean).map((item, index) => ({ ...item, id: `a${index + 1}` }));
+  if (!actions.length || actions.at(-1).type !== 'FINISH') actions.push({ id: `a${actions.length + 1}`, source: 'ollama', type: 'FINISH', message: 'The local VLM completed the task.', risk: 'SAFE', highRisk: false });
+  return {
+    planVersion: '1.0', provider: 'ollama', model: 'qwen2.5vl:3b',
+    message: result?.message || `Ollama returned ${actions.length - 1} action(s).`,
+    actions,
+    metrics: { serverMs: 0, modelMs: 0 }
+  };
+}
+
+function requestVlmPlan(url, payload, generation) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    const timeout = setTimeout(() => { socket.close(); reject(new Error('Ollama VLM timed out after 60 seconds.')); }, 60000);
+    let settled = false;
+    const fail = (error) => { if (settled) return; settled = true; clearTimeout(timeout); reject(error); };
+    socket.onopen = () => socket.send(JSON.stringify({ goal: payload.task, image_base64: payload.imageDataUrl, dom_elements: payload.page?.elements || [] }));
+    socket.onmessage = (event) => {
+      if (settled) return;
+      try {
+        assertCurrentGeneration(generation);
+        settled = true; clearTimeout(timeout); socket.close(); resolve(adaptVlmPlan(JSON.parse(event.data), payload));
+      } catch (error) { fail(error); }
+    };
+    socket.onerror = () => fail(new Error('Could not connect to the local Ollama bridge.'));
+    socket.onclose = () => { if (!settled) fail(new Error('The local Ollama bridge closed the connection.')); };
+  });
+}
+
 async function requestPlan() {
   if (!state.payload || state.payload.leakCheck.status !== 'passed') { setBoundary('Planning blocked', 'Run a successful local scan first.', 'blocked'); return; }
   if (!state.redactionsApproved) { setBoundary('Review required', 'Open the interactive overlay and approve the active redaction list before planning.', 'blocked'); return; }
@@ -801,18 +894,16 @@ async function requestPlan() {
   const generation = currentGeneration();
   state.task = selectedTask(); setPhase('planning');
   $('#plan').disabled = true; state.requestStarted = performance.now(); setBoundary('Sending sanitized context', 'Only the redacted image, sanitized graph, metrics, and task are leaving the extension.', 'working');
-  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 30000);
+  const timer = setTimeout(() => setBoundary('Ollama still working', 'The local VLM is processing the approved sanitized payload.', 'working'), 30000);
   try {
-    const serverUrl = (await storageGet(api.storage.local, 'pvSettings')).pvSettings?.serverUrl || 'http://127.0.0.1:8787';
-    const response = await fetch(`${serverUrl.replace(/\/$/, '')}/api/plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state.payload), signal: controller.signal });
-    const data = await response.json();
+    const settings = (await storageGet(api.storage.local, 'pvSettings')).pvSettings || {};
+    const data = await requestVlmPlan(settings.vlmWsUrl || 'ws://127.0.0.1:8788/agent/loop', state.payload, generation);
     assertCurrentGeneration(generation);
-    if (!response.ok) throw new Error(data.error || `Planner returned ${response.status}.`);
     data.metrics = { ...(data.metrics || {}), e2eMs: Math.round((performance.now() - state.requestStarted) * 10) / 10 };
     $('#allow-server-context').checked = false;
     renderPlan(validateClientPlan(data), 'server');
     await persistSession();
-  } catch (error) { setPhase('ready'); setBoundary('Server planning stopped', error.name === 'AbortError' ? 'The server did not respond within 30 seconds. The local plan remains available.' : `${error.message} The local plan remains available.`, 'blocked'); }
+  } catch (error) { setPhase('ready'); setBoundary('Ollama planning stopped', `${error.message} The local plan remains available.`, 'blocked'); }
   finally { clearTimeout(timer); $('#plan').disabled = false; }
 }
 
@@ -992,7 +1083,7 @@ async function clearSession() {
 async function loadSettings() {
   const stored = await storageGet(api.storage.local, 'pvSettings');
   const versionState = await storageGet(api.storage.local, 'pvProfileVersion');
-  const settings = { serverUrl: 'http://127.0.0.1:8787', localOnly: false, ...defaultProfile, ...(stored.pvSettings || {}) };
+  const settings = { serverUrl: 'http://127.0.0.1:8787', vlmWsUrl: 'ws://127.0.0.1:8788/agent/loop', localOnly: false, ...defaultProfile, ...(stored.pvSettings || {}) };
   settings.localOnly = settings.localOnly === true || settings.localOnly === 'true' || settings.localOnly === 'on';
   state.settings = { localOnly: settings.localOnly };
   if (!versionState.pvProfileVersion || settings.name === legacyProfile.name || settings.email === legacyProfile.email) {
@@ -1002,7 +1093,7 @@ async function loadSettings() {
   }
   state.profile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, settings[key] ?? '']));
   const form = $('#settings-form');
-  Object.entries({ serverUrl: settings.serverUrl || 'http://127.0.0.1:8787', ...state.profile }).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value; });
+  Object.entries({ serverUrl: settings.serverUrl || 'http://127.0.0.1:8787', vlmWsUrl: settings.vlmWsUrl || 'ws://127.0.0.1:8788/agent/loop', ...state.profile }).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value; });
   form.elements.localOnly.checked = settings.localOnly;
 }
 
@@ -1061,4 +1152,12 @@ loadSettings().then(async () => {
   if (!state.task) setAgentTask('prepare_form');
   $('#scan').disabled = false;
   $('#clear').disabled = false;
+  // Pre-warm the YOLO ONNX session after a short delay so the side-panel context
+  // is fully settled and ort is guaranteed to be available. OCR is NOT pre-warmed
+  // here — the Tesseract worker lifecycle conflicts with concurrent scan requests
+  // and initialises lazily on first scan instead.
+  setTimeout(() => {
+    if (typeof ort === 'undefined') return;
+    visualDetector.initialize().catch((err) => console.debug('[Privvy] YOLO pre-warm deferred:', err?.message || err));
+  }, 1000);
 });
