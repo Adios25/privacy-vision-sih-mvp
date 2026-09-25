@@ -135,7 +135,7 @@ def main():
     firefox_manifest = json.loads((ROOT / "extension" / "manifest.firefox.json").read_text(encoding="utf-8"))
     assert chrome_manifest.get("side_panel", {}).get("default_path") == "popup.html"
     chrome_resources = chrome_manifest.get("web_accessible_resources", [{}])[0].get("resources", [])
-    assert "tesseract.worker.min.js" in chrome_resources and "eng.traineddata.gz" in chrome_resources
+    assert "tesseract-worker.min.js" in chrome_resources and "eng.traineddata.gz" in chrome_resources
     assert "<all_urls>" not in chrome_manifest.get("host_permissions", [])
     assert "<all_urls>" not in firefox_manifest.get("host_permissions", [])
     assert "http://127.0.0.1/*" in chrome_manifest.get("host_permissions", [])

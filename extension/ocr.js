@@ -11,7 +11,7 @@
     { category: 'VOTER_ID', regex: /\b[A-Z]{3}\d{7}\b/gi },
     { category: 'GSTIN', regex: /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]\b/gi },
     { category: 'DL_NUMBER', regex: /\b[A-Z]{2}[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{7}\b/gi },
-    { category: 'UPI_ID', regex: /\b[A-Z0-9.\-_]{2,256}@[A-Z]{2,64}\b/gi },
+    { category: 'UPI_ID', regex: /\b[A-Z0-9.\-_]{2,256}@[A-Z]{2,64}\b(?!\.[A-Z]{2,})/gi },
     { category: 'BANK_ACCOUNT', regex: /\b\d{9,18}\b/g },
     { category: 'VEHICLE_REG', regex: /\b[A-Z]{2}[\s-]?\d{1,2}[\s-]?[A-Z]{1,3}[\s-]?\d{4}\b/gi }
   ];

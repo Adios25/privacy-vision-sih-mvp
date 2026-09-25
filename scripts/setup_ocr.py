@@ -58,7 +58,7 @@ def package_assets() -> list[Path]:
 
     copied = [
         copy_file(tesseract_root / "dist" / "tesseract.min.js"),
-        copy_file(tesseract_root / "dist" / "worker.min.js", "tesseract.worker.min.js"),
+        copy_file(tesseract_root / "dist" / "worker.min.js", "tesseract-worker.min.js"),
         copy_file(language_root / "eng.traineddata.gz"),
         copy_file(hindi_language_root / "hin.traineddata.gz"),
     ]

@@ -149,11 +149,11 @@
   function sanitizeControlValue(element, purposeInfo, counters, rawTerms) {
     const value = String(element.value || '');
     if (!value.trim()) return '';
-    if (purposeInfo) {
-      rawTerms.add(value);
-      return token(purposeInfo.category, counters);
-    }
-    return sanitizePatterns(value, counters, rawTerms);
+    rawTerms.add(value);
+    if (purposeInfo) return token(purposeInfo.category, counters);
+    const patterned = sanitizePatterns(value, counters, rawTerms);
+    if (patterned !== value) return patterned;
+    return token('USER_INPUT', counters);
   }
 
   function semanticTextContext(element) {
