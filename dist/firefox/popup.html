@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privvy</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="lens-mark" aria-hidden="true"><i></i></span>
+    <div><strong>Privvy</strong><small>Local privacy lens</small></div>
+    <span id="engine-badge" class="engine-badge">Ready</span>
+  </header>
+
+  <main>
+    <section id="boundary" class="boundary" data-tone="idle" aria-live="polite">
+      <span class="boundary-dot" aria-hidden="true"></span>
+      <div><strong id="boundary-title">Nothing inspected</strong><p id="boundary-copy">Open a website, then choose when this extension may inspect the active tab.</p></div>
+    </section>
+
+    <section class="control-section">
+      <label for="task">What should Privvy help you do?</label>
+      <select id="task-template" aria-label="Choose an assistance task"></select>
+      <textarea id="task" class="resize-none" rows="2">Fill supported empty fields, preserve existing values, and prepare the form for submission.</textarea>
+      <div class="task-presets" aria-label="Assistance task presets">
+        <button type="button" class="task-preset" data-task="Prepare this application without changing existing values.">Prepare application</button>
+        <button type="button" class="task-preset" data-task="Review the visible page and identify the next safe action.">Find next action</button>
+        <button type="button" class="task-preset" data-task="Complete supported empty fields while preserving existing values.">Complete empty fields</button>
+      </div>
+      <div class="action-row">
+        <button id="scan" class="primary" type="button" disabled>1. Scan current page</button>
+        <button id="clear" class="ghost" type="button" disabled>Clear</button>
+      </div>
+    </section>
+
+    <section id="scan-results" class="hidden">
+      <section class="privacy-gate" aria-labelledby="privacy-gate-title">
+        <div class="section-heading"><div><small>Local-only enforcement</small><h2 id="privacy-gate-title">Privacy Gate</h2></div><strong id="privacy-gate-status" class="gate-status">Scanning</strong></div>
+        <div class="privacy-steps">
+          <span id="gate-screen">1. Screen analyzed locally</span>
+          <span id="gate-mask">2. Sensitive regions masked</span>
+          <span id="gate-payload">3. Payload sanitized</span>
+          <span id="gate-egress">4. Egress check passed</span>
+        </div>
+        <p id="privacy-gate-copy">No original screenshot or raw page value is eligible to leave the browser.</p>
+      </section>
+      <div class="section-heading"><div><small>Local processing</small><h2>Redaction ledger</h2></div><strong id="detection-total" class="metric-number">0</strong></div>
+      <div id="category-list" class="category-list"></div>
+      <div class="proof-row"><span>Known-value leak check</span><strong id="leak-status">Pending</strong></div>
+      <section class="review-panel" aria-labelledby="review-title">
+        <div class="section-heading"><div><small>Human-in-the-loop</small><h2 id="review-title">Review &amp; Adjust Redactions</h2></div></div>
+        <div class="review-counters"><span>Auto-detected Masks: <b id="auto-mask-count">0</b></span><span>User-added Masks: <b id="manual-mask-count">0</b></span><span>Disabled Masks: <b id="disabled-mask-count">0</b></span></div>
+        <div id="mask-provenance" class="mask-provenance" aria-live="polite">No QR/barcode decoder results yet.</div>
+        <p id="agent-progress" class="agent-progress" aria-live="polite">Task: Prepare empty form fields · Status: Idle</p>
+        <div class="action-row"><button id="toggle-overlay" class="ghost" type="button" disabled>Toggle Interactive Overlay</button><button id="approve-redactions" class="primary" type="button" disabled>Confirm &amp; Generate Plan</button></div>
+      </section>
+      <div class="preview-section">
+        <figure><figcaption>Sanitized screen <small>Eligible for planning</small></figcaption><canvas id="preview" aria-label="Locally redacted screenshot preview"></canvas></figure>
+      </div>
+      <div class="metric-grid">
+        <span><small>DOM scan</small><strong id="scan-ms">—</strong></span>
+        <span><small>Vision</small><strong id="vision-ms">—</strong></span>
+        <span><small>Redaction</small><strong id="redaction-ms">—</strong></span>
+        <span><small>Payload</small><strong id="payload-size">—</strong></span>
+        <span><small>Memory</small><strong id="memory">—</strong></span>
+      </div>
+      <details>
+        <summary>Inspect exact sanitized payload</summary>
+        <pre id="payload-json"></pre>
+      </details>
+      <button id="export-evidence" class="ghost wide-button" type="button" disabled>Export sanitized demo evidence</button>
+      <div id="yolo-debug-info" class="yolo-debug-info">
+        <div class="debug-title">YOLO Local Perception</div>
+        <div class="debug-row"><span>Model:</span><strong id="yolo-model">YOLO11n</strong></div>
+        <div class="debug-row"><span>Backend:</span><strong id="yolo-backend">—</strong></div>
+        <div class="debug-row"><span>Inference:</span><strong id="yolo-latency">—</strong></div>
+        <div class="debug-row"><span>Detections:</span><div id="yolo-detections" class="yolo-detections-list">—</div></div>
+      </div>
+      <div id="ocr-debug-info" class="yolo-debug-info">
+        <div class="debug-title">Local OCR Privacy Scan</div>
+        <div class="debug-row"><span>Engine:</span><strong id="ocr-engine">Tesseract.js 7</strong></div>
+        <div class="debug-row"><span>Recognition:</span><strong id="ocr-latency">—</strong></div>
+        <div class="debug-row"><span>Sensitive regions:</span><strong id="ocr-detections">—</strong></div>
+      </div>
+      <label class="check-row"><input id="allow-server-context" type="checkbox" disabled> I understand that only sanitized context can be sent to the planner</label>
+      <button id="plan" class="ghost wide-button" type="button" disabled>Optional: request server-side reasoning</button>
+    </section>
+
+    <section id="local-plan-results" class="plan-panel hidden" data-plan-source="local">
+      <div class="section-heading"><div><small>Offline fallback · no network required</small><h2>Offline Action Plan</h2></div><span id="local-provider" class="engine-badge"></span></div>
+      <p id="local-planner-message" class="section-copy"></p>
+      <div id="local-action-list" class="action-list"></div>
+      <button id="execute-local" class="primary wide-button" type="button" disabled>2A. Execute local safe actions</button>
+    </section>
+
+    <section id="server-plan-results" class="plan-panel server-plan hidden" data-plan-source="server">
+      <div class="section-heading"><div><small>Optional sanitized context only</small><h2>Server Action Plan</h2></div><span id="server-provider" class="engine-badge"></span></div>
+      <p id="server-planner-message" class="section-copy"></p>
+      <div id="server-action-list" class="action-list"></div>
+      <div class="metric-grid">
+        <span><small>Server</small><strong id="server-ms">—</strong></span>
+        <span><small>Model</small><strong id="model-ms">—</strong></span>
+        <span><small>Network</small><strong id="network-ms">—</strong></span>
+        <span><small>End to end</small><strong id="e2e-ms">—</strong></span>
+      </div>
+      <button id="execute-server" class="primary wide-button" type="button" disabled>2B. Execute validated server actions</button>
+    </section>
+
+    <section id="execution-results" class="hidden">
+      <div class="section-heading"><div><small>Local validation</small><h2>Execution receipt</h2></div><span id="receipt-source" class="engine-badge"></span></div>
+      <div id="receipt-list" class="action-list"></div>
+    </section>
+
+    <section id="confirmation" class="confirmation hidden" role="region" aria-live="assertive" aria-labelledby="confirmation-title" tabindex="-1">
+      <strong id="confirmation-title">Approve synthetic submission?</strong>
+      <p id="confirmation-copy">Privvy will activate the approved completion control only on the local synthetic portal.</p>
+      <div class="confirmation-actions">
+        <button id="confirm" class="confirm-button" type="button" disabled>3. Approve and submit test application</button>
+        <button id="cancel-confirmation" class="ghost" type="button">Decline submission</button>
+      </div>
+    </section>
+
+    <details class="settings">
+      <summary>Local profile and server settings</summary>
+      <form id="settings-form" novalidate>
+        <label>Planner server<input name="serverUrl" type="url" value="http://127.0.0.1:8787"></label>
+        <label>Local VLM WebSocket<input name="vlmWsUrl" type="url" value="ws://127.0.0.1:8788/agent/loop"></label>
+        <label class="check-row"><input name="localOnly" type="checkbox"> Local-only mode</label>
+        <label>Full name<input name="name" autocomplete="name"></label>
+        <label>Email<input name="email" type="email" autocomplete="email"></label>
+        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
+        <label>Address<textarea class="resize-none" name="address" rows="2"></textarea></label>
+        <label>Date of birth<input name="dob" type="date" autocomplete="bday"></label>
+        <label>Aadhaar test ID<input name="aadhaar" autocomplete="off"></label>
+        <label>Passport<input name="passport" autocomplete="off"></label>
+        <button class="ghost wide-button" type="submit">Save locally</button>
+        <button id="clear-profile" class="ghost wide-button" type="button">Clear profile values</button>
+      </form>
+    </details>
+  </main>
+
+  <script src="ort.wasm.min.js"></script>
+  <script src="tesseract.min.js"></script>
+  <script src="ocr.js"></script>
+  <script src="geometry.js"></script>
+  <script src="redactionMerger.js"></script>
+  <script src="indiaPiiValidator.js"></script>
+  <script src="shadowWalker.js"></script>
+  <script src="agentWorkflow.js"></script>
+  <script src="zxing-browser.min.js"></script>
+  <script src="qrDetector.js"></script>
+  <script src="browser_api.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

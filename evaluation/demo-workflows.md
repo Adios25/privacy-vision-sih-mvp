@@ -33,6 +33,6 @@ All cases are controlled by `test-website/index.html` and `test-website/app.js`.
 
 | Workflow | Date/browser/build | Planner | Pass/fail | Evidence path | Notes |
 |---|---|---|---|---|---|
-| Sensitive application form | NOT RUN | NOT RUN | NOT RUN | | |
-| Download/export discovery | NOT RUN | NOT RUN | NOT RUN | | |
-| Status or case summary | NOT RUN | NOT RUN | NOT RUN | | |
+| Sensitive application form | 2026-09-26/Chrome/1.3.5 | Local + Ollama/qwen2.5vl:3b | PASS | .provider-evidence| | 
+| Download/export discovery | 2026-09-26/Firefox/1.3.5 | Local + Ollama/qwen2.5vl:3b | PASS | .provider-evidence| | 
+| Status or case summary | 2026-09-26/Chrome/1.3.5 | Local + Ollama/qwen2.5vl:3b | PASS | .provider-evidence| | 

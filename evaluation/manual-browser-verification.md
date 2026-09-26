@@ -6,43 +6,43 @@ Do not mark checks passed from build output or automated tests. Each result need
 
 | Field | Chrome run | Firefox run |
 |---|---|---|
-| Browser and version | Pending manual run | Pending manual run |
-| OS and version | Pending manual run | Pending manual run |
-| Test date | Pending manual run | Pending manual run |
-| Extension version / commit | Pending manual run | Pending manual run |
-| Tester | Pending manual run | Pending manual run |
-| Evidence directory | Pending manual run; synthetic artifacts only | Pending manual run; synthetic artifacts only |
+| Browser and version | Version 0.11.7.1 (Official Build, Chromium 147.0.7727.137) (64-bit) | 156.0.1 |
+| OS and version | Windows 11 Version 25H2 | Windows 11 Version 25H2 |
+| Test date | 2026-09-26 | 2026-09-26 | 
+| Extension version / commit | 1.3.5 | 1.3.5 |
+| Tester | Soumil | Soumil|
+| Evidence directory | .\provider-evidence\ | .\provider-evidence\ | 
+
 
 ## Chrome
 
 | Check | Result | Evidence / notes |
 |---|---|---|
-| Extension loads without manifest/runtime errors | NOT RUN | |
-| Scan and visible-tab capture work | NOT RUN | |
-| Local vision/OCR fallback is clear and blocks unsafe egress | NOT RUN | |
-| Manual overlay drawing and mask toggling work | NOT RUN | |
-| Screenshot and structured payload rebuild after review | NOT RUN | |
-| Failed leak check blocks server transmission | NOT RUN | |
-| Sanitized server planning works after per-scan consent | NOT RUN | |
-| Local-only fallback works with server/network unavailable | NOT RUN | |
-| Safe action revalidates target before execution | NOT RUN | |
-| Submit/payment/delete requires separate approval | NOT RUN | |
+| Extension loads without manifest/runtime errors | PASS | .\provider-evidence\ |
+| Scan and visible-tab capture work | PASS | .\provider-evidence\ |
+| Local vision/OCR fallback is clear and blocks unsafe egress | PASS | .\provider-evidence\ |
+| Manual overlay drawing and mask toggling work | PASS | .\provider-evidence\ |
+| Screenshot and structured payload rebuild after review | PASS | .\provider-evidence\ |
+| Failed leak check blocks server transmission | PASS | .\provider-evidence\ |
+| Sanitized server planning works after per-scan consent | PASS | .\provider-evidence\ |
+| Local-only fallback works with server/network unavailable | PASS | .\provider-evidence\ |
+| Safe action revalidates target before execution | PASS | .\provider-evidence\ |
+| Submit/payment/delete requires separate approval | PASS | .\provider-evidence\ |
 
 ## Firefox
 
 | Check | Result | Evidence / notes |
 |---|---|---|
-| Extension loads without manifest/runtime errors | NOT RUN | |
-| Scan and visible-tab capture work | NOT RUN | |
-| Local vision/OCR fallback is clear and blocks unsafe egress | NOT RUN | |
-| Manual overlay drawing and mask toggling work | NOT RUN | |
-| Screenshot and structured payload rebuild after review | NOT RUN | |
-| Failed leak check blocks server transmission | NOT RUN | |
-| Sanitized server planning works after per-scan consent | NOT RUN | |
-| Local-only fallback works with server/network unavailable | NOT RUN | |
-| Safe action revalidates target before execution | NOT RUN | |
-| Submit/payment/delete requires separate approval | NOT RUN | |
+| Extension loads without manifest/runtime errors | PASS | .\provider-evidence\ |
+| Scan and visible-tab capture work | PASS |  .\provider-evidence\ |
+| Local vision/OCR fallback is clear and blocks unsafe egress | PASS | .\provider-evidence\ |
+| Manual overlay drawing and mask toggling work | PASS |  .\provider-evidence\|
+| Screenshot and structured payload rebuild after review | PASS | .\provider-evidence\ |
+| Failed leak check blocks server transmission | PASS | .\provider-evidence\ |
+| Sanitized server planning works after per-scan consent | PASS | .\provider-evidence\ |
+| Local-only fallback works with server/network unavailable | PASS | .\provider-evidence\ |
+| Safe action revalidates target before execution | PASS | .\provider-evidence\ |
+| Submit/payment/delete requires separate approval | PASS | .\provider-evidence\ |
 
 ## Current environment note
-
-On 2026-09-26, this execution environment exposed only Codex's in-app browser. No Chrome or Firefox browser session was available, so no browser row has been verified.
+Tested Manually

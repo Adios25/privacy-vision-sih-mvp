@@ -44,7 +44,7 @@ ENV/
 *.tmp
 
 # Privvy Generated & Downloaded Files
-dist/
+evaluation/
 node_modules/
 *.pt
 *.onnx

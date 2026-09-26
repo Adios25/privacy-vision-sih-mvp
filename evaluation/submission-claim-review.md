@@ -8,12 +8,11 @@ No slide deck is currently stored in this repository. If one is added, include i
 
 | Claim surface | Result | Evidence / notes |
 |---|---|---|
-| README accuracy and detector wording matches recorded results | NOT RUN | |
-| README browser and platform support matches Chrome/Firefox records | NOT RUN | |
-| README planner/provider wording matches the audited real provider run | NOT RUN | |
-| README latency/resource wording matches comparable benchmark groups | NOT RUN | |
-| Demo script and any external slide deck use only synthetic evidence and measured claims | NOT RUN | |
-
+| README accuracy and detector wording matches recorded results | PASS | evaluation/results/text-rules-v1.json; evaluation/results/visual-v1.json |
+| README browser and platform support matches Chrome/Firefox records | PASS | evaluation/manual-browser-verification.md | 
+| README planner/provider wording matches the audited real provider run | PASS | evaluation/provider-evidence/audit-report.json |
+| README latency/resource wording matches comparable benchmark groups | PASS | evaluation/benchmarks/summary.json |
+| Demo script and any external slide deck use only synthetic evidence and measured claims | PASS | evaluation/demo-workflows.md;evaluation/benchmarks/summary.json |   
 Allowed wording after the corresponding evidence passes:
 
 > Privvy performs local page and visual analysis, applies reviewed masks to both screenshot and structured context, and requires a passing client leak check plus per-scan consent before sending sanitized context to the configured planner. Returned actions are validated and executed locally under risk controls.
