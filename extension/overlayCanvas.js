@@ -14,7 +14,11 @@
     const masks = (options.masks || []).map((item, index) => globalThis.PrivvyRedaction.makeBoundingBox(item, index, item.type || 'VISUAL'));
     const manual = masks.filter((item) => item.type === 'MANUAL');
     const context = canvas.getContext('2d'); let drawing = false; let startPoint = null; let pending = null;
-    const emit = (approved = false) => api.runtime.sendMessage({ type: 'PV_REDACTION_REVIEW', approved, autoDetections: masks.filter((item) => item.type !== 'MANUAL'), manualDetections: manual }).catch(() => {});
+    const emit = (approved = false) => {
+      const review = { type: 'PV_REDACTION_REVIEW', scanId: options.scanId || null, approved, autoDetections: masks.filter((item) => item.type !== 'MANUAL'), manualDetections: manual };
+      globalThis.__privvyRedactionReview = review;
+      return api.runtime.sendMessage(review).catch(() => {});
+    };
     const draw = () => {
       context.clearRect(0, 0, innerWidth, innerHeight);
       for (const mask of masks) {

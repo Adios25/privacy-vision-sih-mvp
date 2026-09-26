@@ -24,6 +24,7 @@ VLM_BASE_URL = os.environ.get("VLM_BASE_URL", "http://127.0.0.1:11434/v1")
 VLM_MODEL = os.environ.get("VLM_MODEL", "qwen2.5vl:3b")
 VLM_API_KEY = os.environ.get("VLM_API_KEY", "EMPTY")
 VLM_PROVIDER = os.environ.get("VLM_PROVIDER", "ollama")
+VLM_MAX_OUTPUT_TOKENS = int(os.environ.get("VLM_MAX_OUTPUT_TOKENS", "512"))
 client = AsyncOpenAI(base_url=VLM_BASE_URL, api_key=VLM_API_KEY)
 ALLOWED_MODEL_ACTIONS = {"TYPE", "CLICK", "COMPLETE"}
 ALLOWED_PLACEHOLDERS = {
@@ -121,10 +122,11 @@ async def agent_loop(websocket: WebSocket) -> None:
             task = payload.get("task", {})
             goal = str(task.get("label", "Choose the safest valid browser action.")) if isinstance(task, dict) else str(task)
 
+            allowed_placeholders = ", ".join(sorted(ALLOWED_PLACEHOLDERS))
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a browser agent. Create an ordered action plan based on the image and DOM JSON. Respond in strict JSON with this shape: {\"actions\":[{\"action\":\"TYPE\"|\"CLICK\"|\"COMPLETE\",\"target_id\":\"exact DOM id when needed\",\"placeholder\":\"<USER_NAME> etc. when typing\",\"message\":\"optional\"}]}. Use exact DOM ids. Include every required TYPE and CLICK action in order, then exactly one COMPLETE action last. Never invent target ids.",
+                    "content": f"You are a browser agent. Return exactly one JSON object with an actions array. Allowed action values: TYPE, CLICK, COMPLETE. Never output SELECT or any other action. Every TYPE placeholder must be exactly one of: {allowed_placeholders}. Use exact DOM ids from DOM JSON; never invent target ids. Include safe required TYPE and CLICK actions in order. End actions with exactly one COMPLETE action. If no safe action is needed, return actions containing only COMPLETE. No prose outside JSON.",
                 },
                 {
                     "role": "user",
@@ -146,10 +148,20 @@ async def agent_loop(websocket: WebSocket) -> None:
                 model=VLM_MODEL,
                 messages=messages,
                 response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=VLM_MAX_OUTPUT_TOKENS,
             )
             model_ms = round((time.perf_counter() - model_started) * 1000, 1)
             content = completion.choices[0].message.content or "{}"
-            plan = validated_model_plan(json.loads(content))
+            try:
+                plan = validated_model_plan(json.loads(content))
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("VLM output failed action validation; returning safe COMPLETE-only plan")
+                plan = {
+                    "actions": [{"action": "COMPLETE", "message": "No safe model action was accepted."}],
+                    "message": "Ollama output did not satisfy the action protocol. Safe no-op plan returned.",
+                    "degraded": True,
+                }
             plan.update({
                 "provider": VLM_PROVIDER,
                 "model": VLM_MODEL,

@@ -681,7 +681,7 @@ async function rebuildAfterReview(approved = false) {
 async function toggleInteractiveOverlay() {
   if (!state.scan) return;
   const masks = [...(state.redactionState?.autoDetections || []), ...(state.redactionState?.manualDetections || [])];
-  const response = await sendToTab({ type: 'PV_SHOW_OVERLAY', masks });
+  const response = await sendToTab({ type: 'PV_SHOW_OVERLAY', scanId: state.scan.scanId, masks });
   if (!response?.ok) throw new Error(response?.error || 'Could not open the interactive overlay.');
   setBoundary('Interactive review open', 'Draw masks over missed regions or click an automatic mask to disable it. All edits stay local.', 'working');
 }
@@ -714,6 +714,15 @@ function renderScan() {
   $('#engine-badge').textContent = state.payload.clientMetrics.visionEngine;
   renderPrivacyGate();
   setBoundary(passed ? 'Safe context ready' : 'Network planning blocked', passed ? 'Known raw page values are absent from the structured payload; review it before transmission.' : 'A locally detected raw value remains. Nothing will be sent.', passed ? 'safe' : 'blocked');
+}
+
+async function renderStoredPreview() {
+  if (!state.payload?.imageDataUrl) return;
+  const image = await createImageBitmap(await (await fetch(state.payload.imageDataUrl)).blob());
+  const canvas = $('#preview'); const ratio = Math.min(1, 780 / image.width);
+  canvas.width = Math.round(image.width * ratio); canvas.height = Math.round(image.height * ratio);
+  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+  image.close();
 }
 
 function createLocalPlan(page) {
@@ -856,7 +865,7 @@ function validateClientPlan(plan) {
 }
 
 function adaptVlmPlan(result, payload) {
-  if (result?.error) throw new Error('The configured server planner returned an error.');
+  if (result?.error) throw new Error(`The configured server planner returned an error: ${String(result.error).slice(0, 300)}`);
   const elements = payload?.page?.elements || [];
   const validTargets = new Map(elements.map((element) => [String(element.id), element]));
   const validPlaceholders = new Set(Object.values(placeholderByPurpose));
@@ -904,7 +913,7 @@ function buildVlmRequest(payload, consentAt) {
 function requestVlmPlan(url, outboundRequest, payload, generation) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
-    const timeout = setTimeout(() => { socket.close(); reject(new Error('Server planner timed out after 60 seconds.')); }, 60000);
+    const timeout = setTimeout(() => { socket.close(); reject(new Error('Server planner timed out after 120 seconds.')); }, 120000);
     let settled = false;
     const fail = (error) => { if (settled) return; settled = true; clearTimeout(timeout); reject(error); };
     socket.onopen = () => socket.send(JSON.stringify(outboundRequest));
@@ -996,6 +1005,7 @@ async function restoreSession() {
   state.phase = state.pendingHighRisk.length ? 'executing' : (state.receipt.length ? 'completed' : 'ready');
   setAgentTask(state.task);
   renderScan(); renderRedactionReview(); renderAudit();
+  await renderStoredPreview();
   renderRedactionReview();
   if (state.localPlan) renderPlan(state.localPlan, 'local');
   if (state.serverPlan) renderPlan(state.serverPlan, 'server');
@@ -1004,6 +1014,17 @@ async function restoreSession() {
   if (state.pendingHighRisk.length) requestSubmissionApproval();
   setBoundary('Session restored', 'Privvy resumed the sanitized state for this tab. Raw detected terms and the local profile were not stored in the session.', 'safe');
   return true;
+}
+
+async function restorePendingReview() {
+  if (!state.scan) return;
+  const response = await sendToTab({ type: 'PV_GET_REDACTION_REVIEW' }).catch(() => null);
+  const review = response?.review;
+  if (!review || review.scanId !== state.scan.scanId) return;
+  const capture = await promiseCall(api.runtime, 'sendMessage', { type: 'PV_CAPTURE_VISIBLE_TAB', tabId: state.tabId, windowId: state.windowId }).catch(() => null);
+  if (capture?.dataUrl) state.captureDataUrl = capture.dataUrl;
+  state.redactionState = PrivvyRedaction.createRedactionState(review.autoDetections || [], review.manualDetections || []);
+  await rebuildAfterReview(Boolean(review.approved));
 }
 
 async function execute(actions, allowHighRisk, appendReceipt = false) {
@@ -1228,6 +1249,7 @@ loadSettings().then(async () => {
     console.debug('Initial overlay cleanup skipped:', error.message);
   }
   await restoreSession();
+  await restorePendingReview();
   if (!state.task) setAgentTask('prepare_form');
   $('#scan').disabled = false;
   $('#clear').disabled = false;

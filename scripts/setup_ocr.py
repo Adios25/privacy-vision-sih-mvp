@@ -75,7 +75,7 @@ def validate_assets(paths: list[Path]) -> None:
         raise RuntimeError(f"OCR assets were copied but empty: {', '.join(map(str, empty))}")
     required = {
         "tesseract.min.js",
-        "tesseract.worker.min.js",
+        "tesseract-worker.min.js",
         "eng.traineddata.gz",
         "hin.traineddata.gz",
         "tesseract-core.wasm.js",

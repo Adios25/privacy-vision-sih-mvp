@@ -485,8 +485,9 @@
       }
       else if (message?.type === 'PV_SHOW_OVERLAY') {
         if (!globalThis.PrivvyOverlayCanvas) throw new Error('Interactive overlay is unavailable; scan the page again.');
-        sendResponse(globalThis.PrivvyOverlayCanvas.start({ masks: message.masks || [] }));
+        sendResponse(globalThis.PrivvyOverlayCanvas.start({ masks: message.masks || [], scanId: message.scanId || null }));
       }
+      else if (message?.type === 'PV_GET_REDACTION_REVIEW') sendResponse({ ok: true, review: globalThis.__privvyRedactionReview || null });
       else if (message?.type === 'PV_HIGHLIGHT_TARGET') sendResponse({ ok: true, data: highlightTarget(message) });
       else if (message?.type === 'PV_EXECUTE_ACTIONS') sendResponse({ ok: true, data: executeActions(message) });
       else if (message?.type === 'PV_HIDE_OVERLAY') {

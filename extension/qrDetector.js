@@ -66,13 +66,46 @@
     const points = result?.getResultPoints?.() || [];
     const values = points.map((point) => ({ x: Number(point.getX?.() ?? point.x), y: Number(point.getY?.() ?? point.y) })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
     if (values.length < 2) return null;
-    const left = Math.max(0, Math.min(...values.map((point) => point.x)));
-    const top = Math.max(0, Math.min(...values.map((point) => point.y)));
-    const right = Math.min(bounds.width, Math.max(...values.map((point) => point.x)));
-    const bottom = Math.min(bounds.height, Math.max(...values.map((point) => point.y)));
-    const width = right - left;
-    const height = Math.max(12, bottom - top);
-    return width > 1 ? { x: left, y: Math.max(0, top - 6), width, height: Math.min(bounds.height - Math.max(0, top - 6), height + 12) } : null;
+    const format = result?.getBarcodeFormat?.();
+    const formatName = String(format || '').toLowerCase();
+    const hasFormat = format !== undefined && format !== null;
+    if (!hasFormat) {
+      const left = Math.max(0, Math.min(...values.map((point) => point.x)));
+      const top = Math.max(0, Math.min(...values.map((point) => point.y)));
+      const right = Math.min(bounds.width, Math.max(...values.map((point) => point.x)));
+      const bottom = Math.min(bounds.height, Math.max(...values.map((point) => point.y)));
+      const width = right - left;
+      const height = Math.max(12, bottom - top);
+      return width > 1 ? { x: left, y: Math.max(0, top - 6), width, height: Math.min(bounds.height - Math.max(0, top - 6), height + 12) } : null;
+    }
+    const isQr = format === 11 || formatName.includes('qr');
+    const minX = Math.min(...values.map((point) => point.x));
+    const maxX = Math.max(...values.map((point) => point.x));
+    const minY = Math.min(...values.map((point) => point.y));
+    const maxY = Math.max(...values.map((point) => point.y));
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    let width;
+    let height;
+    if (isQr) {
+      const side = Math.max(maxX - minX, maxY - minY) * (5 / 3);
+      width = side;
+      height = side;
+    } else {
+      const first = values[0];
+      const last = values[values.length - 1];
+      const span = Math.max(1, Math.hypot(last.x - first.x, last.y - first.y));
+      const angle = Math.atan2(last.y - first.y, last.x - first.x);
+      const length = span * 1.19;
+      const thickness = Math.max(12, length * 0.3);
+      width = Math.abs(Math.cos(angle) * length) + Math.abs(Math.sin(angle) * thickness);
+      height = Math.abs(Math.sin(angle) * length) + Math.abs(Math.cos(angle) * thickness);
+    }
+    const left = Math.max(0, Math.min(bounds.width, centerX - width / 2));
+    const top = Math.max(0, Math.min(bounds.height, centerY - height / 2));
+    const right = Math.min(bounds.width, Math.max(left, centerX + width / 2));
+    const bottom = Math.min(bounds.height, Math.max(top, centerY + height / 2));
+    return right - left > 1 && bottom - top > 1 ? { x: left, y: top, width: right - left, height: bottom - top } : null;
   }
 
   async function detectNative(image, imageSize, viewport) {

@@ -1,4 +1,4 @@
-importScripts('browser_api.js');
+if (typeof importScripts === 'function') importScripts('browser_api.js');
 const { api, call: apiCall } = globalThis.PrivvyBrowserApi;
 const pendingCaptures = new Map();
 const CAPTURE_TTL_MS = 60_000;

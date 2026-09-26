@@ -25,7 +25,7 @@ if (!source.includes("planVersion: '1.0'")) throw new Error('Versioned action pr
 for (const file of ['extension/manifest.json', 'extension/manifest.firefox.json', 'package.json']) JSON.parse(await readFile(join(root, file), 'utf8'));
 
 for (const path of [
-  'extension/yolo11n.onnx', 'extension/eng.traineddata.gz', 'extension/tesseract.worker.min.js',
+  'extension/yolo11n.onnx', 'extension/eng.traineddata.gz', 'extension/tesseract-worker.min.js',
   'extension/zxing-browser.min.js',
   'dist/chrome/manifest.json', 'dist/firefox/manifest.json'
 ]) {

@@ -74,6 +74,18 @@ function testFallbackPointRectAndDedupe() {
   assert.deepEqual(qrDetector.dedupe([one, duplicate, separate]), [one, separate]);
 }
 
+function testDecoderBoundsExpandToSymbol() {
+  const points = (items, format) => ({
+    getResultPoints: () => items.map(([x, y]) => ({ getX: () => x, getY: () => y })),
+    getBarcodeFormat: () => format
+  });
+  const qr = qrDetector.rectFromPoints(points([[33, 30], [83, 30], [33, 80]], 11), { width: 320, height: 240 });
+  assert(Math.abs(qr.width - 83.3333333333) < 0.01);
+  assert(Math.abs(qr.height - 83.3333333333) < 0.01);
+  const barcode = qrDetector.rectFromPoints(points([[150, 180], [487, 180]], 4), { width: 640, height: 360 });
+  assert(barcode.width > 400 && barcode.height > 120);
+}
+
 function testQrPixelBlackoutKeepsNearbyPixels() {
   const pixels = new Uint8ClampedArray(8 * 8 * 4).fill(255);
   const context = { fillStyle: '', fillRect(x, y, width, height) { for (let row = y; row < y + height; row += 1) for (let col = x; col < x + width; col += 1) { const index = (row * 8 + col) * 4; pixels[index] = pixels[index + 1] = pixels[index + 2] = 0; } } };
@@ -92,5 +104,5 @@ function testAgentTasksAndActions() {
   assert(workflow.ALLOWED_ACTIONS.includes('REQUEST_RESCAN'));
 }
 
-testQrMask(); testQrContentNeverSerializes(); testShadowPayloadSanitization(); testIndiaValidators(); testInactiveMasksAreNotActive(); testQrVisualPrecisionFilter(); testVerifiedDecoderMetadataNeverIncludesRawValue(); testFallbackPointRectAndDedupe(); testQrPixelBlackoutKeepsNearbyPixels(); testAgentTasksAndActions();
+testQrMask(); testQrContentNeverSerializes(); testShadowPayloadSanitization(); testIndiaValidators(); testInactiveMasksAreNotActive(); testQrVisualPrecisionFilter(); testVerifiedDecoderMetadataNeverIncludesRawValue(); testFallbackPointRectAndDedupe(); testDecoderBoundsExpandToSymbol(); testQrPixelBlackoutKeepsNearbyPixels(); testAgentTasksAndActions();
 console.log('Advanced redaction tests passed.');
