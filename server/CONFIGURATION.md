@@ -32,3 +32,23 @@ plan. `GET /api/metrics` exposes aggregate timings and counts only.
 Provider API keys, request bodies, raw page values, profile values, placeholder
 mappings, and unredacted screenshots must not be placed in logs, CI variables,
 metrics, or client payloads.
+
+The extension's current **Plan with server** button connects to `vlm_bridge.py`
+over WebSocket. Configure that bridge separately with `VLM_BASE_URL`,
+`VLM_MODEL`, `VLM_PROVIDER`, and `VLM_API_KEY`. Defaults target local Ollama at
+`http://127.0.0.1:11434/v1` with `qwen2.5vl:3b`; OpenAI-compatible endpoints can
+be selected by changing the base URL, model, provider label, and server-only
+key. The bridge returns its configured provider/model plus measured model and
+server milliseconds. `server.py` is a separate HTTP planner and is not the
+endpoint used by the extension's current button.
+
+The WebSocket bridge accepts protocol version `1.0` only. It requires a passing
+client leak check, a timestamped per-scan server-context consent flag, a
+valid base64 redacted image no larger than 4 MiB, a redaction manifest, and a
+sanitized page graph before invoking the model.
+Requests that fail these gates receive an error and are not forwarded.
+Model responses are reduced to the bounded `TYPE`, `CLICK`, and terminal
+`COMPLETE` protocol. Type actions must use an allowed placeholder and all
+targeted actions must provide a bounded target ID; invalid model output is
+rejected before it reaches the extension. The extension then revalidates the
+target against the current sanitized graph and live page before execution.

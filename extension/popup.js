@@ -4,10 +4,10 @@ const state = {
   localPlan: null, serverPlan: null, executionSource: null,
   pendingHighRisk: [], receipt: [], profile: null, requestStarted: 0,
   phase: 'idle', generation: 0, approvalConsumed: false, redactionState: null, captureDataUrl: null, redactionsApproved: false,
-  task: null, agentSteps: 0, pendingActionApproval: null
+  task: null, agentSteps: 0, pendingActionApproval: null, serverConsentAt: null, lastOutboundRequest: null
 };
 const $ = (selector) => document.querySelector(selector);
-const PROFILE_VERSION = 2;
+const PROFILE_VERSION = 3;
 const SESSION_VERSION = 5;
 const CONTENT_VERSION = '1.3.5';
 const YOLO_MODEL_FILE = 'yolo11n.onnx';
@@ -15,10 +15,13 @@ const workflow = globalThis.PrivvyAgentWorkflow;
 const MAX_AGENT_STEPS = 3;
 
 const defaultProfile = {
-  name: 'Soumil Bhosle', email: 'soumil.bhosle@example.test', phone: '+91 98765 43210',
+  name: 'Aarav Mehta', email: 'aarav.mehta@example.test', phone: '+91 98765 43210',
   address: '14 Orbital View, Bengaluru 560001', dob: '2002-08-14', aadhaar: '1111 2222 3333', passport: 'Z0000007'
 };
-const legacyProfile = { name: ['Ananya', 'Rao'].join(' '), email: ['ananya.rao', 'example.test'].join('@') };
+const legacyProfiles = {
+  names: new Set([['Ananya', 'Rao'].join(' '), ['Soumil', 'Bhosle'].join(' ')]),
+  emails: new Set([['ananya.rao', 'example.test'].join('@'), ['soumil.bhosle', 'example.test'].join('@')])
+};
 const placeholderByPurpose = {
   name: '<USER_NAME>', email: '<USER_EMAIL>', phone: '<USER_PHONE>', address: '<USER_ADDRESS>',
   dob: '<USER_DOB>', aadhaar: '<USER_AADHAAR>', passport: '<USER_PASSPORT>'
@@ -90,6 +93,8 @@ async function persistSession() {
     redactionsApproved: state.redactionsApproved,
     task: state.task,
     agentSteps: state.agentSteps,
+    serverConsentAt: state.serverConsentAt,
+    lastOutboundRequest: state.lastOutboundRequest,
     savedAt: Date.now()
   };
   try { await storageSet(sessionStore(), { pvActiveSession: saved }); } catch (error) { console.warn('Session persistence unavailable:', error.message); }
@@ -461,7 +466,8 @@ class VisualDetector {
 }
 
 const PRIVACY_POLICY = {
-  "person": { category: "FACE", action: "REDACT" },
+  // COCO's person box covers the full person, not the face. Keep its label honest.
+  "person": { category: "PERSON_REGION", action: "REDACT" },
   "face": { category: "FACE", action: "REDACT" },
   "signature": { category: "SIGNATURE", action: "REDACT" },
   "id card": { category: "IDENTITY_DOCUMENT", action: "REDACT" },
@@ -660,9 +666,12 @@ async function rebuildAfterReview(approved = false) {
   if (!state.scan || !state.captureDataUrl) return;
   state.redactionState = PrivvyRedaction.mergeRedactionState(state.redactionState);
   const activeMasks = state.redactionState.mergedActiveMasks;
+  const redactionStarted = performance.now();
   const redacted = await drawRedactedPreview(state.captureDataUrl, state.scan, activeMasks);
+  const redactionMs = Math.round((performance.now() - redactionStarted) * 10) / 10;
   const metrics = state.payload?.clientMetrics || {};
   state.payload = buildPayload(state.scan, redacted, { ms: metrics.visionMs || 0, engine: metrics.visionEngine || 'local' }, { ms: metrics.ocrMs || 0, engine: metrics.ocrEngine || 'local', detections: [] }, activeMasks, state.rawTerms || [], state.redactionState);
+  state.payload.clientMetrics.redactionMs = redactionMs;
   state.redactionsApproved = approved || state.redactionsApproved;
   await updatePayloadAudit(state.payload); renderScan(); renderRedactionReview(); renderAudit();
   renderPlan(createLocalPlan(state.payload.page), 'local');
@@ -686,6 +695,7 @@ function renderScan() {
   $('#leak-status').style.color = passed ? '#087a55' : '#b42332';
   $('#scan-ms').textContent = `${state.payload.clientMetrics.totalScanMs} ms`;
   $('#vision-ms').textContent = `${state.payload.clientMetrics.visionMs} ms`;
+  $('#redaction-ms').textContent = `${state.payload.clientMetrics.redactionMs ?? 0} ms`;
   $('#ocr-engine').textContent = state.payload.clientMetrics.ocrEngine || 'Tesseract.js 7';
   $('#ocr-latency').textContent = state.payload.clientMetrics.ocrMs == null ? '—' : `${state.payload.clientMetrics.ocrMs} ms`;
   $('#ocr-detections').textContent = String(state.payload.clientMetrics.ocrSensitiveRegions || 0);
@@ -694,6 +704,7 @@ function renderScan() {
   $('#memory').textContent = state.payload.clientMetrics.jsHeapBytes ? `${Math.round(state.payload.clientMetrics.jsHeapBytes / 1048576)} MB` : 'N/A';
   const previewPayload = { ...state.payload, imageDataUrl: `<REDACTED_IMAGE_DATA:${Math.round(state.payload.imageDataUrl.length / 1024)}KB>` };
   $('#payload-json').textContent = JSON.stringify(previewPayload, null, 2);
+  $('#export-evidence').disabled = false;
   $('#scan-results').classList.remove('hidden');
   $('#plan').disabled = !passed || Boolean(state.settings?.localOnly) || !state.redactionsApproved;
   $('#allow-server-context').disabled = !passed || Boolean(state.settings?.localOnly);
@@ -791,8 +802,12 @@ async function scanPage() {
     setPhase('sanitizing');
     state.redactionState = PrivvyRedaction.createRedactionState(detections);
     const activeMasks = PrivvyRedaction.mergeRedactionState(state.redactionState).mergedActiveMasks;
+    const redactionStarted = performance.now();
     const redacted = await drawRedactedPreview(capture.dataUrl, response.data, activeMasks);
-    state.payload = await updatePayloadAudit(buildPayload(response.data, redacted, vision, ocr, activeMasks, rawTerms, state.redactionState, qr));
+    const redactionMs = Math.round((performance.now() - redactionStarted) * 10) / 10;
+    state.payload = buildPayload(response.data, redacted, vision, ocr, activeMasks, rawTerms, state.redactionState, qr);
+    state.payload.clientMetrics.redactionMs = redactionMs;
+    await updatePayloadAudit(state.payload);
     state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = [];
     state.approvalConsumed = false; state.redactionsApproved = false;
     setPhase('scanned');
@@ -818,6 +833,7 @@ function renderPlan(response, source) {
   if (isServer) {
     $('#server-ms').textContent = `${response.metrics?.serverMs || 0} ms`;
     $('#model-ms').textContent = `${response.metrics?.modelMs || 0} ms`;
+    $('#network-ms').textContent = `${response.metrics?.networkMs || 0} ms`;
     $('#e2e-ms').textContent = `${response.metrics?.e2eMs || 0} ms`;
   }
   $(`#${source}-plan-results`).classList.remove('hidden');
@@ -840,6 +856,7 @@ function validateClientPlan(plan) {
 }
 
 function adaptVlmPlan(result, payload) {
+  if (result?.error) throw new Error('The configured server planner returned an error.');
   const elements = payload?.page?.elements || [];
   const validTargets = new Map(elements.map((element) => [String(element.id), element]));
   const validPlaceholders = new Set(Object.values(placeholderByPurpose));
@@ -848,39 +865,59 @@ function adaptVlmPlan(result, payload) {
     const action = String(item?.action || item?.type || '').toUpperCase();
     const targetId = item?.target_id || item?.targetId || null;
     const target = targetId ? validTargets.get(String(targetId)) : null;
-    if (action === 'CLICK' && target) return { source: 'ollama', type: 'CLICK', targetId: String(targetId), risk: 'MEDIUM', highRisk: false };
+    if (action === 'CLICK' && target) return { source: 'server', type: 'CLICK', targetId: String(targetId), risk: 'MEDIUM', highRisk: false };
     if (action === 'TYPE' && target) {
       const placeholder = validPlaceholders.has(item?.placeholder) ? item.placeholder : placeholderByPurpose[target.purpose];
-      if (placeholder) return { source: 'ollama', type: 'TYPE_PLACEHOLDER', targetId: String(targetId), placeholder, risk: 'MEDIUM', highRisk: false };
+      if (placeholder) return { source: 'server', type: 'TYPE_PLACEHOLDER', targetId: String(targetId), placeholder, risk: 'MEDIUM', highRisk: false };
     }
-    if (action === 'COMPLETE') return { source: 'ollama', type: 'FINISH', message: item?.message || 'The local VLM completed the task.', risk: 'SAFE', highRisk: false };
+    if (action === 'COMPLETE') return { source: 'server', type: 'FINISH', message: item?.message || 'The configured VLM completed the task.', risk: 'SAFE', highRisk: false };
     return null;
   }).filter(Boolean).map((item, index) => ({ ...item, id: `a${index + 1}` }));
-  if (!actions.length || actions.at(-1).type !== 'FINISH') actions.push({ id: `a${actions.length + 1}`, source: 'ollama', type: 'FINISH', message: 'The local VLM completed the task.', risk: 'SAFE', highRisk: false });
+  if (!actions.length || actions.at(-1).type !== 'FINISH') actions.push({ id: `a${actions.length + 1}`, source: 'server', type: 'FINISH', message: 'The configured VLM completed the task.', risk: 'SAFE', highRisk: false });
   return {
-    planVersion: '1.0', provider: 'ollama', model: 'qwen2.5vl:3b',
-    message: result?.message || `Ollama returned ${actions.length - 1} action(s).`,
+    planVersion: '1.0', provider: String(result?.provider || 'server'), model: String(result?.model || 'configured VLM'),
+    message: result?.message || `The server planner returned ${actions.length - 1} action(s).`,
     actions,
-    metrics: { serverMs: 0, modelMs: 0 }
+    metrics: {
+      serverMs: Number.isFinite(Number(result?.metrics?.serverMs)) ? Number(result.metrics.serverMs) : 0,
+      modelMs: Number.isFinite(Number(result?.metrics?.modelMs)) ? Number(result.metrics.modelMs) : 0
+    }
   };
 }
 
-function requestVlmPlan(url, payload, generation) {
+function buildVlmRequest(payload, consentAt) {
+  return {
+    protocolVersion: '1.0',
+    consent: { serverContext: true, grantedAt: consentAt },
+    task: payload.task,
+    imageDataUrl: payload.imageDataUrl,
+    leakCheck: payload.leakCheck,
+    sanitizedContext: {
+      page: payload.page,
+      redactionManifest: payload.redactionManifest,
+      clientMetrics: payload.clientMetrics,
+      audit: payload.audit
+    }
+  };
+}
+
+function requestVlmPlan(url, outboundRequest, payload, generation) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
-    const timeout = setTimeout(() => { socket.close(); reject(new Error('Ollama VLM timed out after 60 seconds.')); }, 60000);
+    const timeout = setTimeout(() => { socket.close(); reject(new Error('Server planner timed out after 60 seconds.')); }, 60000);
     let settled = false;
     const fail = (error) => { if (settled) return; settled = true; clearTimeout(timeout); reject(error); };
-    socket.onopen = () => socket.send(JSON.stringify({ goal: payload.task, image_base64: payload.imageDataUrl, dom_elements: payload.page?.elements || [] }));
+    socket.onopen = () => socket.send(JSON.stringify(outboundRequest));
     socket.onmessage = (event) => {
       if (settled) return;
       try {
         assertCurrentGeneration(generation);
-        settled = true; clearTimeout(timeout); socket.close(); resolve(adaptVlmPlan(JSON.parse(event.data), payload));
+        const adapted = adaptVlmPlan(JSON.parse(event.data), payload);
+        settled = true; clearTimeout(timeout); socket.close(); resolve(adapted);
       } catch (error) { fail(error); }
     };
-    socket.onerror = () => fail(new Error('Could not connect to the local Ollama bridge.'));
-    socket.onclose = () => { if (!settled) fail(new Error('The local Ollama bridge closed the connection.')); };
+    socket.onerror = () => fail(new Error('Could not connect to the configured server planner.'));
+    socket.onclose = () => { if (!settled) fail(new Error('The server planner closed the connection.')); };
   });
 }
 
@@ -892,18 +929,26 @@ async function requestPlan() {
   if (!$('#allow-server-context').checked) { setBoundary('Approval required', 'Enable the per-scan approval to send sanitized context to the planner.', 'blocked'); return; }
   if (!['scanned', 'ready'].includes(state.phase)) return;
   const generation = currentGeneration();
+  state.serverConsentAt = new Date().toISOString();
   state.task = selectedTask(); setPhase('planning');
   $('#plan').disabled = true; state.requestStarted = performance.now(); setBoundary('Sending sanitized context', 'Only the redacted image, sanitized graph, metrics, and task are leaving the extension.', 'working');
-  const timer = setTimeout(() => setBoundary('Ollama still working', 'The local VLM is processing the approved sanitized payload.', 'working'), 30000);
+  const timer = setTimeout(() => setBoundary('Server planner still working', 'The configured model is processing the approved sanitized payload.', 'working'), 30000);
   try {
     const settings = (await storageGet(api.storage.local, 'pvSettings')).pvSettings || {};
-    const data = await requestVlmPlan(settings.vlmWsUrl || 'ws://127.0.0.1:8788/agent/loop', state.payload, generation);
+    state.lastOutboundRequest = buildVlmRequest(state.payload, state.serverConsentAt);
+    const data = await requestVlmPlan(
+      settings.vlmWsUrl || 'ws://127.0.0.1:8788/agent/loop',
+      state.lastOutboundRequest,
+      state.payload,
+      generation
+    );
     assertCurrentGeneration(generation);
     data.metrics = { ...(data.metrics || {}), e2eMs: Math.round((performance.now() - state.requestStarted) * 10) / 10 };
+    data.metrics.networkMs = Math.max(0, Math.round((data.metrics.e2eMs - Number(data.metrics.serverMs || 0)) * 10) / 10);
     $('#allow-server-context').checked = false;
     renderPlan(validateClientPlan(data), 'server');
     await persistSession();
-  } catch (error) { setPhase('ready'); setBoundary('Ollama planning stopped', `${error.message} The local plan remains available.`, 'blocked'); }
+  } catch (error) { state.serverConsentAt = null; setPhase('ready'); setBoundary('Server planning stopped', `${error.message} The local plan remains available.`, 'blocked'); }
   finally { clearTimeout(timer); $('#plan').disabled = false; }
 }
 
@@ -946,6 +991,8 @@ async function restoreSession() {
   state.redactionsApproved = Boolean(saved.redactionsApproved);
   state.task = saved.task || workflow?.normalizeTask(saved.payload.task) || selectedTask();
   state.agentSteps = Number.isInteger(saved.agentSteps) ? saved.agentSteps : 0;
+  state.serverConsentAt = saved.serverConsentAt || null;
+  state.lastOutboundRequest = saved.lastOutboundRequest || null;
   state.phase = state.pendingHighRisk.length ? 'executing' : (state.receipt.length ? 'completed' : 'ready');
   setAgentTask(state.task);
   renderScan(); renderRedactionReview(); renderAudit();
@@ -1073,10 +1120,10 @@ async function clearSession() {
     // The tab may already be closed; local session cleanup still proceeds.
     console.debug('Overlay cleanup skipped:', error.message);
   }
-  state.generation += 1; setPhase('idle'); state.scan = null; state.payload = null; state.captureDataUrl = null; state.redactionState = null; state.rawTerms = []; state.redactionsApproved = false; state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = []; state.approvalConsumed = false;
+  state.generation += 1; setPhase('idle'); state.scan = null; state.payload = null; state.captureDataUrl = null; state.redactionState = null; state.rawTerms = []; state.redactionsApproved = false; state.localPlan = null; state.serverPlan = null; state.executionSource = null; state.pendingHighRisk = []; state.receipt = []; state.approvalConsumed = false; state.serverConsentAt = null; state.lastOutboundRequest = null;
   await discardPersistedSession();
   $('#plan').disabled = true; $('#execute-local').disabled = true; $('#execute-server').disabled = true; $('#confirm').disabled = true;
-  $('#scan-results').classList.add('hidden'); $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden'); $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden'); $('#toggle-overlay').disabled = true; $('#approve-redactions').disabled = true;
+  $('#scan-results').classList.add('hidden'); $('#local-plan-results').classList.add('hidden'); $('#server-plan-results').classList.add('hidden'); $('#execution-results').classList.add('hidden'); $('#confirmation').classList.add('hidden'); $('#toggle-overlay').disabled = true; $('#approve-redactions').disabled = true; $('#export-evidence').disabled = true;
   $('#engine-badge').textContent = 'Ready'; setBoundary('Nothing inspected', 'Open a website, then choose when this extension may inspect the active tab.');
 }
 
@@ -1086,9 +1133,10 @@ async function loadSettings() {
   const settings = { serverUrl: 'http://127.0.0.1:8787', vlmWsUrl: 'ws://127.0.0.1:8788/agent/loop', localOnly: false, ...defaultProfile, ...(stored.pvSettings || {}) };
   settings.localOnly = settings.localOnly === true || settings.localOnly === 'true' || settings.localOnly === 'on';
   state.settings = { localOnly: settings.localOnly };
-  if (!versionState.pvProfileVersion || settings.name === legacyProfile.name || settings.email === legacyProfile.email) {
-    if (!settings.name || settings.name === legacyProfile.name) settings.name = defaultProfile.name;
-    if (!settings.email || settings.email === legacyProfile.email) settings.email = defaultProfile.email;
+  const hasLegacyDefault = legacyProfiles.names.has(settings.name) || legacyProfiles.emails.has(settings.email);
+  if (versionState.pvProfileVersion !== PROFILE_VERSION || hasLegacyDefault) {
+    if (!settings.name || legacyProfiles.names.has(settings.name)) settings.name = defaultProfile.name;
+    if (!settings.email || legacyProfiles.emails.has(settings.email)) settings.email = defaultProfile.email;
     await storageSet(api.storage.local, { pvSettings: settings, pvProfileVersion: PROFILE_VERSION });
   }
   state.profile = Object.fromEntries(Object.keys(defaultProfile).map((key) => [key, settings[key] ?? '']));
@@ -1116,6 +1164,36 @@ async function clearProfile() {
   setBoundary('Profile cleared', 'Stored profile fields were removed. Future execution will remain blocked until you provide the needed values.', 'safe');
 }
 
+function exportSanitizedEvidence() {
+  if (!state.payload) return;
+  const evidence = {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    privacy: {
+      syntheticDataRequired: true,
+      rawCaptureExcluded: true,
+      rawOcrTermsExcluded: true,
+      localProfileExcluded: true,
+      payloadHashMeaning: 'Integrity fingerprint only; not proof that payload is free of PII.'
+    },
+    approval: {
+      redactionsApproved: Boolean(state.redactionsApproved),
+      serverConsentAt: state.serverConsentAt
+    },
+    outboundRequest: state.lastOutboundRequest,
+    sanitizedPayload: state.payload,
+    plans: { local: state.localPlan, server: state.serverPlan },
+    execution: { source: state.executionSource, receipt: state.receipt }
+  };
+  const blob = new Blob([`${JSON.stringify(evidence, null, 2)}\n`], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `privvy-sanitized-evidence-${Date.now()}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  setBoundary('Evidence exported', 'The local file contains sanitized payload and audit metadata only. Review it before sharing.', 'safe');
+}
+
 api.runtime.onMessage.addListener((message) => {
   if (message?.type !== 'PV_REDACTION_REVIEW' || !state.scan) return false;
   state.redactionState = PrivvyRedaction.createRedactionState(message.autoDetections || [], message.manualDetections || []);
@@ -1127,6 +1205,7 @@ $('#toggle-overlay').addEventListener('click', () => toggleInteractiveOverlay().
 $('#approve-redactions').addEventListener('click', () => rebuildAfterReview(true).then(() => setBoundary('Redactions approved', 'The local image and structural payload were rebuilt from the active mask list.', 'safe')).catch((error) => setBoundary('Approval stopped', error.message, 'blocked')));
 document.querySelectorAll('.task-preset').forEach((button) => button.addEventListener('click', () => { setAgentTask(button.dataset.task); $('#task').focus(); }));
 $('#scan').addEventListener('click', scanPage);
+$('#export-evidence').addEventListener('click', exportSanitizedEvidence);
 $('#plan').addEventListener('click', requestPlan);
 $('#execute-local').addEventListener('click', () => executeSafeActions('local'));
 $('#execute-server').addEventListener('click', () => executeSafeActions('server'));

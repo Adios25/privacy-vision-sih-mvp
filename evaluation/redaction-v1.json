@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "privvy-redaction-synthetic-v1",
+  "syntheticOnly": true,
+  "cases": [
+    {
+      "id": "form-pii-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Name: Mira Sen; Email: mira.sen@example.test; Phone: +91 98765 43210; PAN: ABCDE1234F",
+      "expected": [
+        { "category": "PERSON", "start": 6, "end": 14 },
+        { "category": "EMAIL", "start": 23, "end": 44 },
+        { "category": "PHONE", "start": 53, "end": 68 },
+        { "category": "PAN_LIKE", "start": 75, "end": 85 }
+      ]
+    },
+    {
+      "id": "identity-password-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Aadhaar-like: 236375286327; Passport: N1234567; Password: Saffron!73",
+      "expected": [
+        { "category": "AADHAAR_LIKE", "start": 14, "end": 26 },
+        { "category": "PASSPORT", "start": 38, "end": 46 },
+        { "category": "PASSWORD", "start": 58, "end": 68 }
+      ]
+    },
+    {
+      "id": "address-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Address: 14 Lotus Road, Pune 411001; Status: Submitted",
+      "expected": [{ "category": "ADDRESS", "start": 9, "end": 35 }]
+    },
+    {
+      "id": "dashboard-mixed-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Owner: Dev Shah; Case: PV-2048; Status: Under review",
+      "expected": [{ "category": "PERSON", "start": 7, "end": 15 }]
+    },
+    {
+      "id": "navigation-safe-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Menu: Home | Applications | Help; Logo: PRIVVYY; Status: Draft",
+      "expected": []
+    },
+    {
+      "id": "portal-name-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Applicant name: Aarav Mehta",
+      "expected": [{ "category": "PERSON", "start": 16, "end": 27 }]
+    },
+    {
+      "id": "document-dob-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Date of birth: 14-08-1998",
+      "expected": [{ "category": "DOB", "start": 15, "end": 25 }]
+    },
+    {
+      "id": "populated-password-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-populated-form-value",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Password: Saffron!73",
+      "expected": [{ "category": "PASSWORD", "start": 10, "end": 20 }]
+    },
+    {
+      "id": "portal-upi-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-portal-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "UPI ID: demo.user@okbank",
+      "expected": [{ "category": "UPI_ID", "start": 8, "end": 24 }]
+    },
+    {
+      "id": "portal-bank-001",
+      "kind": "text",
+      "synthetic": true,
+      "sourceType": "synthetic-portal-text",
+      "coordinateSystem": "zero-based-half-open-unicode-codepoint-span",
+      "text": "Account number: 123456789",
+      "expected": [{ "category": "BANK_ACCOUNT", "start": 16, "end": 25 }]
+    },
+    {
+      "id": "qr-small-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/qr-small.svg",
+      "imageSize": [320, 240],
+      "expected": [{ "category": "QR_BARCODE", "box": [16, 18, 84, 84] }],
+      "notes": "Synthetic small QR code with a valid decoder payload."
+    },
+    {
+      "id": "qr-large-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/qr-large.svg",
+      "imageSize": [1280, 720],
+      "expected": [{ "category": "QR_BARCODE", "box": [880, 120, 280, 280] }],
+      "notes": "Synthetic large QR code with a valid decoder payload."
+    },
+    {
+      "id": "qr-rotated-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/qr-rotated.svg",
+      "imageSize": [640, 480],
+      "expected": [{ "category": "QR_BARCODE", "box": [179, 109, 242, 242] }],
+      "notes": "Synthetic QR code rotated 27 degrees; box is the axis-aligned enclosure."
+    },
+    {
+      "id": "qr-low-contrast-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/qr-low-contrast.svg",
+      "imageSize": [640, 480],
+      "expected": [{ "category": "QR_BARCODE", "box": [210, 140, 180, 180] }],
+      "notes": "Valid QR code with reduced foreground/background contrast."
+    },
+    {
+      "id": "qr-occluded-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/qr-occluded.svg",
+      "imageSize": [640, 480],
+      "expected": [{ "category": "QR_BARCODE", "box": [210, 140, 180, 180] }],
+      "notes": "Valid QR code with a synthetic central occlusion."
+    },
+    {
+      "id": "non-sensitive-square-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-negative-control",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/non-sensitive-square.svg",
+      "imageSize": [640, 480],
+      "expected": [],
+      "notes": "Synthetic non-QR square navigation icon. A QR mask is a false positive."
+    },
+    {
+      "id": "barcode-code128-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/barcode-code128.svg",
+      "imageSize": [640, 360],
+      "expected": [{ "category": "QR_BARCODE", "box": [120, 105, 400, 120] }],
+      "notes": "Synthetic Code 128 barcode encoding a non-personal test identifier."
+    },
+    {
+      "id": "barcode-low-contrast-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/barcode-low-contrast.svg",
+      "imageSize": [640, 360],
+      "expected": [{ "category": "QR_BARCODE", "box": [120, 105, 400, 120] }],
+      "notes": "Synthetic low-contrast Code 128 barcode encoding a non-personal test identifier."
+    },
+    {
+      "id": "barcode-rotated-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-image",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/barcode-rotated.svg",
+      "imageSize": [640, 360],
+      "expected": [{ "category": "QR_BARCODE", "box": [111, 55, 418, 220] }],
+      "notes": "Synthetic Code 128 barcode rotated 15 degrees; box is the rounded axis-aligned enclosure."
+    },
+    {
+      "id": "non-sensitive-logo-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-negative-control",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/non-sensitive-logo.svg",
+      "imageSize": [640, 480],
+      "expected": [],
+      "notes": "Synthetic square logo. Any QR/barcode mask is a false positive."
+    },
+    {
+      "id": "non-sensitive-dark-control-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-negative-control",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/non-sensitive-dark-control.svg",
+      "imageSize": [640, 480],
+      "expected": [],
+      "notes": "Synthetic dark navigation control. Any QR/barcode mask is a false positive."
+    },
+    {
+      "id": "non-sensitive-qr-like-001",
+      "kind": "visual",
+      "synthetic": true,
+      "sourceType": "generated-svg-negative-control",
+      "coordinateSystem": "image-pixels-xywh",
+      "fixture": "fixtures/non-sensitive-qr-like.svg",
+      "imageSize": [640, 480],
+      "expected": [],
+      "notes": "Synthetic QR-like decorative graphic without a decodable payload. Any QR/barcode mask is a false positive."
+    }
+  ]
+}

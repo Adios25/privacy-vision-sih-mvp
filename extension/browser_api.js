@@ -1,4 +1,4 @@
-(() => {
+q(() => {
   const api = globalThis.browser || globalThis.chrome;
 
   async function call(target, method, ...args) {

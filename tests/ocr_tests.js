@@ -13,7 +13,7 @@ function blocks(lines) {
 const fixture = blocks([
   [word('Email:', 96, 10, 10, 60, 30), word('student@example.test', 94, 70, 10, 250, 30)],
   [word('Aadhaar:', 93, 10, 40, 80, 60), word('1111', 91, 90, 40, 130, 60), word('2222', 92, 140, 40, 180, 60), word('3333', 90, 190, 40, 230, 60)],
-  [word('Full', 95, 10, 70, 40, 90), word('name:', 95, 45, 70, 90, 90), word('Soumil', 89, 100, 70, 155, 90), word('Bhosle', 90, 160, 70, 215, 90)],
+  [word('Full', 95, 10, 70, 40, 90), word('name:', 95, 45, 70, 90, 90), word('Aarav', 89, 100, 70, 150, 90), word('Mehta', 90, 155, 70, 205, 90)],
 ]);
 
 const result = globalThis.PrivvyOCR.extractSensitiveOcr(
@@ -22,7 +22,7 @@ const result = globalThis.PrivvyOCR.extractSensitiveOcr(
   { width: 150, height: 50 }
 );
 
-assert.deepEqual(new Set(result.rawTerms), new Set(['student@example.test', '1111 2222 3333', 'Soumil Bhosle']));
+assert.deepEqual(new Set(result.rawTerms), new Set(['student@example.test', '1111 2222 3333', 'Aarav Mehta']));
 assert.deepEqual(result.detections.map((item) => item.category).sort(), ['AADHAAR_LIKE', 'EMAIL', 'PERSON']);
 
 const email = result.detections.find((item) => item.category === 'EMAIL');

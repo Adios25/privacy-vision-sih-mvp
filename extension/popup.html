@@ -61,6 +61,7 @@
       <div class="metric-grid">
         <span><small>DOM scan</small><strong id="scan-ms">—</strong></span>
         <span><small>Vision</small><strong id="vision-ms">—</strong></span>
+        <span><small>Redaction</small><strong id="redaction-ms">—</strong></span>
         <span><small>Payload</small><strong id="payload-size">—</strong></span>
         <span><small>Memory</small><strong id="memory">—</strong></span>
       </div>
@@ -68,6 +69,7 @@
         <summary>Inspect exact sanitized payload</summary>
         <pre id="payload-json"></pre>
       </details>
+      <button id="export-evidence" class="ghost wide-button" type="button" disabled>Export sanitized demo evidence</button>
       <div id="yolo-debug-info" class="yolo-debug-info">
         <div class="debug-title">YOLO Local Perception</div>
         <div class="debug-row"><span>Model:</span><strong id="yolo-model">YOLO11n</strong></div>
@@ -96,9 +98,10 @@
       <div class="section-heading"><div><small>Optional sanitized context only</small><h2>Server Action Plan</h2></div><span id="server-provider" class="engine-badge"></span></div>
       <p id="server-planner-message" class="section-copy"></p>
       <div id="server-action-list" class="action-list"></div>
-      <div class="metric-grid three">
+      <div class="metric-grid">
         <span><small>Server</small><strong id="server-ms">—</strong></span>
         <span><small>Model</small><strong id="model-ms">—</strong></span>
+        <span><small>Network</small><strong id="network-ms">—</strong></span>
         <span><small>End to end</small><strong id="e2e-ms">—</strong></span>
       </div>
       <button id="execute-server" class="primary wide-button" type="button" disabled>2B. Execute validated server actions</button>

@@ -38,7 +38,7 @@ function nonMaximumSuppression(candidates, iouThreshold = 0.45) {
 }
 
 const PRIVACY_POLICY = {
-  "person": { category: "FACE", action: "REDACT" },
+  "person": { category: "PERSON_REGION", action: "REDACT" },
   "face": { category: "FACE", action: "REDACT" },
   "signature": { category: "SIGNATURE", action: "REDACT" },
   "id card": { category: "IDENTITY_DOCUMENT", action: "REDACT" },
@@ -100,7 +100,7 @@ function testCoordinateConversion() {
   const padY = Math.floor((640 - newHeight) / 2); // 140
   
   // A simulated detection of a person box in YOLO 640x640:
-  // Let's say a face is at center in the resized 360px height.
+  // A person region is centered in the resized 360px height.
   // In 640x640, it is at x=200, y=140+180=320, width=100, height=100
   const yoloBox = [200, 320, 100, 100];
   
@@ -163,9 +163,9 @@ function testPrivacyPolicyMapping() {
     }
   }
 
-  // Expect only "person" to be mapped to "FACE" category for redaction, while "laptop" is skipped.
+  // YOLO's whole-person box must not be presented as a face detection.
   assert.equal(redactions.length, 1);
-  assert.equal(redactions[0].category, "FACE");
+  assert.equal(redactions[0].category, "PERSON_REGION");
   assert.equal(redactions[0].source, "YOLO11n");
   assert.equal(redactions[0].confidence, 0.95);
   

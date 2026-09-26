@@ -1,6 +1,6 @@
 const identity = {
-  name: 'Soumil Bhosle',
-  email: 'soumil.bhosle@example.test',
+  name: 'Aarav Mehta',
+  email: 'aarav.mehta@example.test',
   phone: '+91 98765 43210',
   address: '14 Orbital View, Bengaluru 560001',
   dob: '2002-08-14',
@@ -114,7 +114,7 @@ function renderAsset(asset) {
   const art = asset.kind === 'face'
     ? '<div class="face-art" role="img" aria-label="Synthetic patient portrait"></div>'
     : asset.kind === 'signature'
-      ? '<div class="signature-art" role="img" aria-label="Synthetic applicant signature">Soumil</div>'
+      ? '<div class="signature-art" role="img" aria-label="Synthetic applicant signature">Aarav</div>'
       : '<div class="document-art" role="img" aria-label="Synthetic Aadhaar identity document"><span>IDENTITY TEST CARD</span><b>•••• •••• 3333</b><i></i></div>';
   visualAsset.innerHTML = `<div class="asset-content" data-visual-purpose="${asset.kind}" data-visual-category="${asset.category}">
     ${art}<div class="asset-copy"><strong>${escapeHtml(asset.label)}</strong><span>Visible only as planted test data</span></div>

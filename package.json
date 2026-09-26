@@ -6,7 +6,10 @@
   "scripts": {
     "check:version": "node scripts/check_version.mjs",
     "build": "node scripts/check_version.mjs && node scripts/package_extensions.mjs && node scripts/check_version.mjs --artifacts",
-    "test": "node tests/yolo_tests.js && node tests/manual_redaction_tests.js && node tests/advanced_redaction_tests.js && node tests/static_checks.mjs"
+    "test": "node tests/yolo_tests.js && node tests/manual_redaction_tests.js && node tests/advanced_redaction_tests.js && node tests/static_checks.mjs",
+    "eval:fixtures": "node scripts/generate_eval_fixtures.cjs",
+    "eval:capture:text": "node scripts/capture_text_predictions.cjs",
+    "eval:benchmark:summary": "python scripts/summarize_benchmarks.py"
   },
   "dependencies": {
     "@zxing/browser": "0.2.1",

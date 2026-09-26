@@ -17,7 +17,7 @@
   ];
 
   const LABEL_VALUE_PATTERNS = [
-    { category: 'PERSON', regex: /\b(?:full\s+name|applicant\s+name|patient\s+name|name)(?:\s*:\s*|\s+-\s+)(.{2,80})$/i },
+    { category: 'PERSON', regex: /\b(?:full\s+name|applicant\s+name|patient\s+name|name)(?:\s*:\s*|\s+-\s+)([^;|\r\n]{2,80})/i },
     { category: 'ADDRESS', regex: /\b(?:postal\s+address|residential\s+address|address)(?:\s*:\s*|\s+-\s+)(.{4,160})$/i },
     { category: 'DOB', regex: /\b(?:date\s+of\s+birth|birth\s+date|dob)(?:\s*:\s*|\s+-\s+)(.{4,40})$/i },
     { category: 'PASSPORT', regex: /\b(?:passport(?:\s+number|\s+no\.?)?)(?:\s*:\s*|\s+-\s+)(.{2,40})$/i },
@@ -29,6 +29,7 @@
     { category: 'UPI_ID', regex: /\b(?:upi|vpa|upi\s+id|payment\s+address)(?:\s*:\s*|\s+-\s+)(.{4,60})$/i },
     { category: 'BANK_ACCOUNT', regex: /\b(?:account\s+number|bank\s+account|a\/c\s+no)(?:\s*:\s*|\s+-\s+)(.{8,20})$/i },
     { category: 'VEHICLE_REG', regex: /\b(?:vehicle\s+number|registration\s+number|reg\s+no)(?:\s*:\s*|\s+-\s+)(.{4,20})$/i }
+    ,{ category: 'PASSWORD', regex: /\b(?:password|passcode|security\s+pin)(?:\s*:\s*|\s+-\s+)([^;|\r\n]{1,128})/i }
     ,{ category: 'PERSON', regex: /(?:नाम|पूरा\s+नाम|आवेदक\s+का\s+नाम|पिता\s+का\s+नाम)\s*(?:[:\-]\s*|है\s+)(.{2,80})$/u }
     ,{ category: 'ADDRESS', regex: /(?:पता|स्थायी\s+पता|निवास\s+का\s+पता)\s*(?:[:\-]\s*|है\s+)(.{4,160})$/u }
     ,{ category: 'DOB', regex: /(?:जन्म\s+तिथि|जन्म\s+दिनांक|जन्म)\s*(?:[:\-]\s*|है\s+)(.{4,40})$/u }

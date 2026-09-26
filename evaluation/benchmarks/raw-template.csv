@@ -1,0 +1,1 @@
+run_id,date,browser,browser_version,os,os_version,cpu,gpu,model,model_state,page_element_count,viewport_width,viewport_height,image_width,image_height,repetition,client_scan_ms,redaction_ms,network_ms,model_ms,total_task_ms,js_heap_bytes,notes

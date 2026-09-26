@@ -1,6 +1,6 @@
 # Privvy (v1.3.5) — Privacy-Preserving Visual Web Agent MVP
 
-> **An institutional-grade, privacy-first browser extension and autonomous agent platform that inspects, redacts, sanitizes, plans, and executes web actions locally without leaking raw PII or unmasked visual data to external servers or AI models.**
+> **A privacy-first browser-extension prototype that performs local page analysis, applies reviewed redactions, checks approved outbound context, and executes allowlisted web actions under explicit safety controls.**
 
 ---
 
@@ -17,7 +17,7 @@ Modern Vision-Language Models (VLMs) and browser automation agents offer immense
 **Privvy** (v1.3.5) introduces an **in-browser privacy boundary** that runs between the user's browser tab and any AI reasoning backend (local or cloud):
 
 1. **Local-First Detection & Masking:** Identifies text patterns, form semantics, and visual regions locally inside the browser.
-2. **Zero Raw PII Egress:** Replaces sensitive values with typed tokens (`<USER_NAME>`, `<USER_EMAIL>`, `<USER_INPUT_1>`) and applies solid, opaque bounding-box masks to screenshots.
+2. **Raw-Value Egress Controls:** Replaces detected sensitive values with typed tokens (`<USER_NAME>`, `<USER_EMAIL>`, `<USER_INPUT_1>`), applies opaque masks to screenshots, and blocks known-term leak-check failures. Detection and masking quality must still be evaluated.
 3. **Structured Payload & Outbound Leak Guard:** Verifies that no known raw terms exist in the structured JSON payload before any data leaves the extension.
 4. **Dual Plan Architecture (v1.3.5):** Generates an offline deterministic local plan immediately upon scan, while offering an optional server/VLM plan. Users can independently inspect and choose **"Execute local plan"** or **"Execute server plan"**.
 5. **Local Profile Resolution:** Real user data resides strictly in browser-local extension storage. Token resolution occurs strictly on-device inside the DOM.
@@ -25,7 +25,7 @@ Modern Vision-Language Models (VLMs) and browser automation agents offer immense
 
 ### Recent implementation updates
 
-- Restored the production visual detector to the pretrained COCO `yolo11n.onnx` model. It runs through ONNX Runtime WebGPU with automatic WASM fallback and continues to detect faces locally.
+- Restored the production visual detector to the pretrained COCO `yolo11n.onnx` model. It runs through ONNX Runtime WebGPU with automatic WASM fallback and masks detected person regions; it is not a face detector.
 - Kept identity-document protection OCR-first. A custom Aadhaar/PAN YOLO experiment was evaluated, then removed from the active product path because the small document dataset reduced reliability.
 - Added multi-pass local OCR: native resolution plus enlarged grayscale/contrast processing. Duplicate OCR boxes are merged before redaction.
 - Added bounded multi-frame scroll capture. Privvy samples long pages, runs OCR per viewport, and restores the user's original scroll position.
@@ -34,7 +34,11 @@ Modern Vision-Language Models (VLMs) and browser automation agents offer immense
 - Added ordered Ollama action plans. The extension validates model-provided target IDs and maps `TYPE`, `CLICK`, and `COMPLETE` into the existing safe execution protocol.
 - Added WebSocket CSP permission and a local VLM URL setting in the extension.
 - Fixed data-URI screenshot decoding by allowing `data:` in the extension's `connect-src` policy.
-- Added bridge smoke testing and rebuilt Chrome/Firefox distribution artifacts.
+- Added bridge smoke-test coverage. Rebuild Chrome/Firefox distribution artifacts after completing the current source validation.
+
+### SIH evidence status
+
+The repository implementation is complete, but submission evidence is not. Start with [`evaluation/READINESS_STATUS.md`](evaluation/READINESS_STATUS.md), perform [`evaluation/TESTING_HANDOFF.md`](evaluation/TESTING_HANDOFF.md), and run `python scripts/check_sih_readiness.py` only after recording real Chrome, Firefox, provider, workflow, and benchmark evidence.
 
 ---
 
@@ -67,7 +71,7 @@ Privvy is architected into three independently functioning, decoupled components
 └─────────────────────────────────────────────────────────────────┼──────────────────────┘
                                                                   │ Sanitized Context Only
                                      HTTP POST /api/plan          │ (Redacted Image +
-                                 (No Raw PII, Redacted Screenshot)│  Sanitized UI Graph)
+                                 (Leak-checked redacted context)  │  Sanitized UI Graph)
                                                                   ▼
                                                ┌─────────────────────────────────────┐
                                                │        Privvy Planner Server        │
@@ -111,15 +115,15 @@ The normative privacy and safety behavior is defined in [UX-CONTRACT.md](UX-CONT
 
 Any outbound payload must pass the client leak check and server validation before planning. High-risk actions remain approval-gated even when the local or remote planner is unavailable.
 
-| Feature | How Privvy Implements It | Privacy / Safety Guarantee |
+| Feature | How Privvy Implements It | Enforced behavior / limitation |
 |---|---|---|
-| **Local Text & Pattern Detection** | Regex patterns (`EMAIL`, `PHONE`, `AADHAAR`, `PAN`, `PASSPORT`, `CARD`, `IP`) + DOM semantic traversal (`data-field-purpose`, `<label>`, `autocomplete`, `<dt>/<dd>`). | Raw terms are indexed locally into an ephemeral `Set` and never transmitted across the network. |
-| **Visual Element & Face Classifier** | Local WebGPU ONNX Runtime Web inference (`VisualDetector` using YOLO11n) with automatic fallback to WebAssembly (WASM). | Detects facial regions and portraits directly on-device. Redaction masks original pixels completely. |
-| **Solid Bounding-Box Redaction** | Bounding boxes are stamped with `#071A18` solid fills and tagged with token badges (`<FACE>`, `<EMAIL_1>`). | No translucent blur or reversible mosaic filtering. Zero raw image pixels leave the browser. |
+| **Local Text & Pattern Detection** | Regex patterns (`EMAIL`, `PHONE`, `AADHAAR`, `PAN`, `PASSPORT`, `CARD`, `IP`) + DOM semantic traversal (`data-field-purpose`, `<label>`, `autocomplete`, `<dt>/<dd>`). | Detected raw terms are held locally for the bounded leak check and are not fields in the planner request. Undetected sensitive text remains a known risk. |
+| **Visual Element Classifier** | Local WebGPU ONNX Runtime Web inference (`VisualDetector` using YOLO11n) with automatic fallback to WebAssembly (WASM). | COCO `person` detections are labeled `PERSON_REGION`; this is not a dedicated face detector. |
+| **Solid Bounding-Box Redaction** | Active bounding boxes are stamped with `#071A18` solid fills before the outbound image is built. | Avoids translucent blur or mosaic filtering; undetected or incorrectly placed regions remain a known limitation. |
 | **Prefill Preservation (v1.3.5)** | Evaluated via portal presets (`One typed`, `Two typed`, `Many typed`). Assigns `<USER_INPUT_n>` placeholders to existing content. | Agent strictly preserves existing values and only fills empty target controls. |
 | **Client-Side Outbound Leak Check** | Serializes the complete request JSON and performs substring search against all locally detected raw terms. | If a single raw term appears in the structured graph, network planning is immediately blocked (`status: 'blocked'`). |
 | **Dual Plan Execution (v1.3.5)** | Separate action tracks for local deterministic baseline vs. remote VLM plans (`Execute local plan` / `Execute server plan`). | Users can compare plans side-by-side and choose which execution path to trigger. |
-| **Local Profile Resolution** | User profiles are stored in `chrome.storage.local`. The server plan outputs token placeholders (e.g. `<USER_NAME>`). | Actual identity values (`Soumil Bhosle`, etc.) are resolved and injected locally by the extension runtime. |
+| **Local Profile Resolution** | User profiles are stored in `chrome.storage.local`. The server plan outputs token placeholders (e.g. `<USER_NAME>`). | Profile values are resolved and injected by the extension runtime rather than included in the planner request. |
 | **Human-in-the-Loop Submissions** | Actions classified as `HIGH_RISK` (submit, complete, pay) are separated into a pending queue with **Confirm** and **Decline** actions. | Explicit user consent is mandatory prior to submitting synthetic forms. |
 | **Safe Test Isolation** | High-risk automated submissions check `isSyntheticSafeTest()` and local origins (`127.0.0.1`, `localhost`, `0.0.0.0`). | Prevents unexpected form submissions on external, non-test websites. |
 
@@ -244,7 +248,7 @@ This generates:
 
 ## 🧪 Hands-On Demo & Walkthrough
 
-Follow these steps to experience the complete end-to-end privacy workflow:
+Follow these steps to exercise the intended end-to-end privacy workflow. Record the manual result before treating any step as verified:
 
 ### 1. Open the Synthetic Portal
 Navigate to **[http://127.0.0.1:8787](http://127.0.0.1:8787)**. Notice the four available scenarios in the top dropdown:
@@ -254,20 +258,20 @@ Navigate to **[http://127.0.0.1:8787](http://127.0.0.1:8787)**. Notice the four 
 - **Research Visa Application** (`Voyager Research Visa Centre`) — Passport and signature artifacts.
 
 ### 2. Test Pre-Filled / User-Typed Fields (Prefill Preservation Test)
-Click the **"One typed"**, **"Two typed"**, or **"Many typed"** preset buttons on the website, or type a custom value into one of the fields. Notice the field indicator highlights that a value is already present. Privvy will sanitize this value and guarantee it is never overwritten.
+Click the **"One typed"**, **"Two typed"**, or **"Many typed"** preset buttons on the website, or type a custom value into one of the fields. Notice the field indicator highlights that a value is already present. Privvy is designed to tokenize the value and preserve populated fields; verify that behavior during the browser checklist before presenting it as a result.
 
 ### 3. Open Privvy & Scan the Page
 1. Click the **Privvy icon** in the Chrome toolbar. The Privvy persistent side panel opens.
 2. Click **"Scan current page"**.
 3. Observe what happens instantaneously in the extension:
    - **Detection Ledger:** Lists detected categories (e.g. `PERSON: 1`, `EMAIL: 1`, `PHONE: 1`, `ADDRESS: 1`, `USER_INPUT: 1`).
-   - **Solid Redacted Preview:** Inspect the canvas preview. Every sensitive field and visual asset is masked with solid `#071A18` bounding boxes.
-   - **Leak Check Status:** Displays `Passed` (green), certifying zero raw strings exist in the outbound payload.
+   - **Solid Redacted Preview:** Inspect the canvas preview and verify that each expected synthetic sensitive region is covered by a solid `#071A18` mask.
+   - **Leak Check Status:** Displays `Passed` (green) when none of the locally known raw terms were found in the structured outbound request. This is a bounded check, not proof of complete anonymization.
    - **Telemetry Metrics:** Displays exact scan duration, WebGPU/Canvas vision engine timing, and JS Heap usage.
 
 ### 4. Inspect the Sanitized JSON Payload
-Expand the **"Sanitized Payload (Ready for Server/Model)"** inspector in Privvy. Notice:
-- Raw names and emails are completely replaced with `<USER_NAME>`, `<USER_EMAIL>`, etc.
+Expand the **"Inspect exact sanitized payload"** section in Privvy. Verify that:
+- Detected names and emails are replaced with `<USER_NAME>`, `<USER_EMAIL>`, etc.; compare against the source fixture for misses.
 - Any user-typed field is protected as `<USER_INPUT_1>`.
 - The image data URL points only to the solid redacted screenshot.
 
@@ -278,8 +282,8 @@ Expand the **"Sanitized Payload (Ready for Server/Model)"** inspector in Privvy.
 ### 6. Execute Safe Actions
 Click **"Execute local plan"** or **"Execute server plan"**:
 - Privvy inspects the live page state hash to prevent stale executions.
-- Empty fields are populated using your local profile (e.g., `Soumil Bhosle`, `soumil.bhosle@example.test`).
-- Pre-filled or user-typed fields are strictly **preserved and untouched**.
+- Empty fields are populated using the synthetic local demo profile (for example, `Aarav Mehta`, `aarav.mehta@example.test`).
+- Verify that pre-filled or user-typed fields remain **preserved and untouched**.
 - The high-risk submit button is identified and placed in the **Pending Confirmation** queue.
 
 ### 7. Confirm or Decline Synthetic Submission
@@ -324,7 +328,7 @@ python -m pip install -r server/requirements-vlm.txt
 python server/vlm_bridge.py
 ```
 
-Defaults:
+Defaults (override with `VLM_BASE_URL`, `VLM_MODEL`, `VLM_PROVIDER`, and `VLM_API_KEY`; keep keys in the server environment only):
 
 ```text
 Ollama:  http://127.0.0.1:11434/v1
@@ -332,7 +336,7 @@ Model:   qwen2.5vl:3b
 Bridge:  ws://127.0.0.1:8788/agent/loop
 ```
 
-Reload `dist/chrome` in `chrome://extensions`, scan a page, approve the redactions, enable sanitized server context, and choose **Plan with server**. The bridge returns an ordered action list; the extension rejects invented DOM target IDs before execution.
+Reload `dist/chrome` in `chrome://extensions`, scan a page, approve the redactions, enable sanitized server context, and choose **Plan with server**. The bridge reports configured provider/model and measured model/server latency. The extension rejects invented DOM target IDs and surfaces bridge errors instead of turning them into a completed plan.
 
 ### Mode 3: Cloud / OpenAI-Compatible Multimodal API
 Connect to any OpenAI-compatible multimodal endpoint (OpenAI GPT-4o, Groq, vLLM, LiteLLM, etc.):
@@ -411,7 +415,7 @@ Privvy performs local visual perception inside the browser using **YOLO11n** run
 - **Preprocessing:** Resizes and letterboxes screenshots to `640x640` with standard grey padding, normalized pixels `[0, 1]`, and CHW Float32 layout.
 - **Postprocessing & NMS:** Performs class filtering, runs custom Non-Maximum Suppression (NMS) to eliminate duplicate bounding boxes, and scales coordinates back to the original browser viewport.
 - **Coordinate Contract:** YOLO screenshot-pixel boxes are clamped and converted to CSS viewport coordinates before they are merged with DOM and OCR detections, preventing DPR/browser-zoom double scaling.
-- **Privacy Policy Integration:** Maps the YOLO `person` class directly to the `<FACE>` redaction category, stamping solid opaque `#071a18` badges to mask the visual area completely.
+- **Person-region masking:** YOLO's COCO `person` class masks the detected person region; it is not face-level detection. No dedicated face detector is currently integrated.
 - **Pluggable Weights:** The pipeline is modularly designed so that custom weights (e.g., trained to detect ID cards or signatures) can be swapped in by replacing `yolo11n.onnx` and updating `PRIVACY_POLICY` class maps in `popup.js`.
 
 ---
@@ -436,7 +440,7 @@ Privvy runs Tesseract.js 7 entirely inside the extension after screenshot captur
 
 - **Deterministic Pattern Scope:** Text detection uses rule-based heuristics, DOM accessibility semantics, and regular expressions rather than an in-browser heavy LLM NER model.
 - **YOLO Pre-trained Weights:** Pre-trained YOLO11n (COCO dataset) only detects standard COCO classes (e.g., `person`) and does not natively identify signatures, passports, or ID cards. The extension is architected to allow custom weights for these specialized classes to be plugged in without refactoring.
-- **Synthetic Portal Representation:** Standard weights will not detect CSS-drawn synthetic shapes representing face photos on the test portal. Test verification should use real photograph files containing people.
+- **Face Detection:** No dedicated face detector is integrated. COCO person detections mask whole person regions and may miss faces or include surrounding body/background.
 - **OCR Scope:** Hindi support covers printed Devanagari text and deterministic PII/label rules. Handwriting, low-resolution text, and other regional scripts require additional language data or specialized recognition models.
 - **Controlled High-Risk Execution:** Full automated form submission is deliberately gated behind explicit user confirmation and restricted to authenticated local test origins (`127.0.0.1`, `localhost`, `0.0.0.0`).
 - **Meaning of "Leak Check Passed":** The leak check confirms that no locally indexed raw terms appear in the outbound structured payload; it is an active security assertion rather than a claim of absolute mathematical impossibility of re-identification.

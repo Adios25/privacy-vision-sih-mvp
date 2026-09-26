@@ -14,9 +14,17 @@ PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY4
 
 async def main() -> None:
     payload = {
-        "goal": "Complete the page task",
-        "image_base64": f"data:image/png;base64,{PNG}",
-        "dom_elements": [{"id": "submit-1", "role": "button", "text": "Submit", "enabled": True}],
+        "protocolVersion": "1.0",
+        "consent": {"serverContext": True, "grantedAt": "2026-09-26T00:00:00Z"},
+        "task": {"id": "prepare_form", "label": "Complete the page task"},
+        "imageDataUrl": f"data:image/png;base64,{PNG}",
+        "leakCheck": {"status": "passed", "knownRawTermsInStructuredPayload": 0},
+        "sanitizedContext": {
+            "page": {"elements": [{"id": "submit-1", "role": "button", "label": "Submit", "enabled": True}]},
+            "redactionManifest": [],
+            "clientMetrics": {},
+            "audit": {},
+        },
     }
     async with websockets.connect("ws://127.0.0.1:8788/agent/loop", open_timeout=10) as socket:
         await socket.send(json.dumps(payload))

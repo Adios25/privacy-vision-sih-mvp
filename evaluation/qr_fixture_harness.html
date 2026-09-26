@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privvy QR fixture evaluation</title>
+  <style>
+    body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #172b27; font: 16px/1.5 system-ui, sans-serif; }
+    label { display: inline-grid; gap: .25rem; margin: .4rem .8rem .4rem 0; }
+    input { padding: .45rem; }
+    button { margin: .7rem .4rem .7rem 0; padding: .6rem .9rem; }
+    #status { white-space: pre-wrap; background: #f3f5f4; padding: .8rem; min-height: 3rem; }
+    .notice { color: #8a2d14; }
+  </style>
+</head>
+<body>
+  <h1>Privvy QR fixture evaluation</h1>
+  <p class="notice">Synthetic fixtures only. This page runs the local QR/barcode detector and exports only boxes, categories, decoder source, format, and timing. It does not export decoded payload values.</p>
+  <label>Browser and version <input id="browser" placeholder="Chrome 140"></label>
+  <label>Operating system <input id="os" placeholder="Windows 11"></label>
+  <label>Extension build or detector version <input id="build" value="Privvy 1.3.5 / local QR detector"></label>
+  <p><button id="run">Run visual fixtures</button><button id="download" disabled>Download predictions JSON</button></p>
+  <pre id="status">Ready. Start a local static server from the repository root, then open /evaluation/qr_fixture_harness.html.</pre>
+  <script src="../extension/geometry.js"></script>
+  <script src="../extension/zxing-browser.min.js"></script>
+  <script src="../extension/qrDetector.js"></script>
+  <script>
+    const fixtures = [
+      ['qr-small-001', 'fixtures/qr-small.svg', 320, 240],
+      ['qr-large-001', 'fixtures/qr-large.svg', 1280, 720],
+      ['qr-rotated-001', 'fixtures/qr-rotated.svg', 640, 480],
+      ['qr-low-contrast-001', 'fixtures/qr-low-contrast.svg', 640, 480],
+      ['qr-occluded-001', 'fixtures/qr-occluded.svg', 640, 480],
+      ['non-sensitive-square-001', 'fixtures/non-sensitive-square.svg', 640, 480],
+      ['barcode-code128-001', 'fixtures/barcode-code128.svg', 640, 360],
+      ['barcode-low-contrast-001', 'fixtures/barcode-low-contrast.svg', 640, 360],
+      ['barcode-rotated-001', 'fixtures/barcode-rotated.svg', 640, 360],
+      ['non-sensitive-logo-001', 'fixtures/non-sensitive-logo.svg', 640, 480],
+      ['non-sensitive-dark-control-001', 'fixtures/non-sensitive-dark-control.svg', 640, 480],
+      ['non-sensitive-qr-like-001', 'fixtures/non-sensitive-qr-like.svg', 640, 480]
+    ];
+    const status = document.querySelector('#status');
+    let result = null;
+    document.querySelector('#run').addEventListener('click', async () => {
+      document.querySelector('#download').disabled = true;
+      status.textContent = 'Running local detector...';
+      const cases = {};
+      const log = [];
+      try {
+        for (const [caseId, imagePath, width, height] of fixtures) {
+          const image = new Image();
+          image.src = imagePath;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(image, 0, 0, width, height);
+          const detected = await PrivvyQrDetector.detect(canvas.toDataURL('image/png'), { width, height });
+          const detections = detected.detections.map((item) => ({
+            category: 'QR_BARCODE',
+            box: [item.rect.x, item.rect.y, item.rect.width, item.rect.height].map((number) => Math.round(number)),
+            source: item.source,
+            format: item.format,
+            verified: item.verified,
+            confidence: item.confidence
+          }));
+          cases[caseId] = { detections };
+          log.push(`${caseId}: ${detections.length} decoded mask(s); engine=${detected.engine}; ${detected.ms} ms`);
+        }
+        result = {
+          schemaVersion: 1,
+          runMetadata: {
+            capturedAt: new Date().toISOString(),
+            browser: document.querySelector('#browser').value.trim() || 'not recorded',
+            operatingSystem: document.querySelector('#os').value.trim() || 'not recorded',
+            detector: document.querySelector('#build').value.trim(),
+            dataPolicy: 'Synthetic image fixtures only; decoded barcode values are excluded'
+          },
+          cases
+        };
+        status.textContent = `${log.join('\n')}\n\nReady to download detector predictions. A zero detection count is retained as a measured miss.`;
+        document.querySelector('#download').disabled = false;
+      } catch (error) {
+        result = null;
+        status.textContent = `Capture stopped: ${error.message}`;
+      }
+    });
+    document.querySelector('#download').addEventListener('click', () => {
+      if (!result) return;
+      const blob = new Blob([JSON.stringify(result, null, 2) + '\n'], { type: 'application/json' });
+      const anchor = document.createElement('a');
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = 'redaction-visual-predictions-v1.json';
+      anchor.click();
+      URL.revokeObjectURL(anchor.href);
+    });
+  </script>
+</body>
+</html>

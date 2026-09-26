@@ -81,8 +81,8 @@ def main():
     for scenario_id in ("internship", "kyc", "telehealth", "visa"):
         assert scenario_id not in extension_js, f"Extension contains scenario-specific identifier: {scenario_id}"
     assert "rawTerms.add(value)" in extension_js and "USER_INPUT" in extension_js
-    assert "Soumil Bhosle" in website_js and "Soumil Bhosle" in popup_js
-    assert "soumil.bhosle@example.test" in website_js and "soumil.bhosle@example.test" in popup_js
+    assert "Aarav Mehta" in website_js and "Aarav Mehta" in popup_js
+    assert "aarav.mehta@example.test" in website_js and "aarav.mehta@example.test" in popup_js
     assert "createLocalPlan" in popup_js and "deterministic-schema-v1" in popup_js
     assert "task-template" in popup_js and "PrivvyAgentWorkflow" in popup_js and "MAX_AGENT_STEPS" in popup_js
     assert "PV_HIGHLIGHT_TARGET" in popup_js and "approveSuggestedAction" in popup_js
